@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Watering Control</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Automated Watering</p>
+          <h1>Raspberry Pi Control Panel</h1>
+          <p class="sub">Monitor soil moisture and trigger watering runs.</p>
+        </div>
+        <div class="status-pill" id="healthPill">API: checking...</div>
+      </header>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Moisture sensors</h2>
+          <p class="muted">Last read</p>
+          <div id="moistureReadings" class="readings">No data yet.</div>
+          <button class="ghost" id="refreshBtn">Refresh now</button>
+        </article>
+
+        <article class="card">
+          <h2>Manual watering</h2>
+          <p class="muted">Quick runs</p>
+          <div class="button-row">
+            <button class="primary" data-seconds="5">Water 5s</button>
+            <button class="primary" data-seconds="15">Water 15s</button>
+            <button class="primary" data-seconds="30">Water 30s</button>
+          </div>
+          <p class="note" id="waterNote">Idle</p>
+        </article>
+
+        <article class="card">
+          <h2>Hardware state</h2>
+          <div class="state-row">
+            <span>Pump</span>
+            <button class="toggle" data-target="pump" id="pumpToggle">Toggle</button>
+          </div>
+          <div class="state-row">
+            <span>Valve</span>
+            <button class="toggle" data-target="valve" id="valveToggle">Toggle</button>
+          </div>
+          <div class="state" id="hardwareState">Unknown</div>
+        </article>
+      </section>
+
+      <section class="card wide">
+        <h2>Notes</h2>
+        <p class="muted">
+          If you run this frontend from a different host, enable CORS in Flask or serve
+          the static files from the backend.
+        </p>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
