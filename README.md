@@ -1,7 +1,9 @@
 # Automated-watering-device
+
 Automatyczne urządzenie do podlewania roślin
 
 ## Structure
+
 ```
 .
 ├── .dockerignore
@@ -27,6 +29,7 @@ Automatyczne urządzenie do podlewania roślin
 ```
 
 ## Backend (UV)
+
 1. Create venv and install deps:
    - `uv venv`
    - `uv pip install -r backend/requirements.txt`
@@ -36,18 +39,58 @@ Automatyczne urządzenie do podlewania roślin
    - `uv run python backend/run.py`
 
 Optional env vars (pins and sensors):
+
 - `PUMP_PIN=17`
 - `VALVE_PIN=27`
 - `MOISTURE_CHANNELS=0,1,2`
 - `DATABASE_PATH=instance/watering.db`
 
 ## Frontend (static)
+
 Serve with any static server from `frontend/`, for example:
+
 - `uv run python -m http.server 8080 --directory frontend`
 
 If served from another host, add CORS in Flask or serve frontend from Flask.
 
+## Run locally (Windows / Ubuntu)
+
+### Windows (PowerShell)
+
+1. Create venv and install deps:
+   - `uv venv`
+   - `uv pip install -r backend/requirements.txt`
+2. Initialize SQLite:
+   - `uv run flask --app backend/run.py init-db`
+3. Run API:
+   - `uv run python backend/run.py`
+4. Serve frontend (new terminal):
+   - `uv run python -m http.server 8080 --directory frontend`
+
+Open in browser:
+
+- [http://localhost:8080](http://localhost:8080)
+- [http://localhost:5000/api/health](http://localhost:5000/api/health)
+
+### Ubuntu (bash)
+
+1. Create venv and install deps:
+   - `uv venv`
+   - `uv pip install -r backend/requirements.txt`
+2. Initialize SQLite:
+   - `uv run flask --app backend/run.py init-db`
+3. Run API:
+   - `uv run python backend/run.py`
+4. Serve frontend (new terminal):
+   - `uv run python -m http.server 8080 --directory frontend`
+
+Open in browser:
+
+- [http://localhost:8080](http://localhost:8080)
+- [http://localhost:5000/api/health](http://localhost:5000/api/health)
+
 ## API sketch
+
 - `GET /api/health`
 - `GET /api/status`
 - `GET /api/moisture`
@@ -56,39 +99,60 @@ If served from another host, add CORS in Flask or serve frontend from Flask.
 - `POST /api/water` { "seconds": 5, "zone": 0 }
 
 ## Hardware notes
+
 - Pump and valve are driven as GPIO outputs.
 - Soil sensors with analog output need an ADC (example: MCP3008 via SPI).
 - Enable SPI on Raspberry Pi when using MCP3008.
 
 ## Docker (UV)
+
 Build the image:
+
 - `docker build -t watering .`
 
 Run (frontend on :8080, API on :5000, SQLite persisted in backend/instance):
-- `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
+
+- Windows (PowerShell): `docker run --rm -p 5000:5000 -p 8080:8080 -v ${PWD}/backend/instance:/data watering`
+- Ubuntu (bash): `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
 
 Optional env vars for container:
+
 - `-e API_BASE=http://localhost:5000`
 - `-e PUMP_PIN=17`
 - `-e VALVE_PIN=27`
 - `-e MOISTURE_CHANNELS=0,1,2`
 
 ### Docker: status, start, stop
+
 Check if the container is running:
+
 - `docker ps`
 
 Check all containers (including stopped):
+
 - `docker ps -a`
 
 Start the app container:
-- `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
+
+- Windows (PowerShell): `docker run --rm -p 5000:5000 -p 8080:8080 -v ${PWD}/backend/instance:/data watering`
+- Ubuntu (bash): `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
 
 Stop the running container (replace NAME or ID):
+
 - `docker stop <container_name_or_id>`
 
 See container logs (replace NAME or ID):
+
 - `docker logs -f <container_name_or_id>`
 
 Quick health check:
+
+Open in browser (clickable):
+
+- [http://localhost:8080](http://localhost:8080)
+- [http://localhost:5000/api/health](http://localhost:5000/api/health)
+
+Quick health check:
+
 - frontend: `http://localhost:8080`
 - backend: `http://localhost:5000/api/health`
