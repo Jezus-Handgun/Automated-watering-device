@@ -4,6 +4,8 @@ Automatyczne urządzenie do podlewania roślin
 ## Structure
 ```
 .
+├── .dockerignore
+├── Dockerfile
 ├── backend/
 │   ├── app/
 │   │   ├── hardware/
@@ -15,21 +17,23 @@ Automatyczne urządzenie do podlewania roślin
 │   │   └── schema.sql
 │   ├── requirements.txt
 │   └── run.py
+├── docker/
+│   └── entrypoint.sh
 └── frontend/
-	 ├── app.js
-	 ├── index.html
-	 └── styles.css
+    ├── app.js
+    ├── config.js
+    ├── index.html
+    └── styles.css
 ```
 
-## Backend (Flask)
+## Backend (UV)
 1. Create venv and install deps:
-	- `python -m venv .venv`
-	- `source .venv/bin/activate`
-	- `pip install -r requirements.txt`
+   - `uv venv`
+   - `uv pip install -r backend/requirements.txt`
 2. Initialize SQLite:
-	- `flask --app run.py init-db`
+   - `uv run flask --app backend/run.py init-db`
 3. Run API:
-	- `python run.py`
+   - `uv run python backend/run.py`
 
 Optional env vars (pins and sensors):
 - `PUMP_PIN=17`
@@ -39,7 +43,7 @@ Optional env vars (pins and sensors):
 
 ## Frontend (static)
 Serve with any static server from `frontend/`, for example:
-- `python -m http.server 8080`
+- `uv run python -m http.server 8080 --directory frontend`
 
 If served from another host, add CORS in Flask or serve frontend from Flask.
 
@@ -55,3 +59,36 @@ If served from another host, add CORS in Flask or serve frontend from Flask.
 - Pump and valve are driven as GPIO outputs.
 - Soil sensors with analog output need an ADC (example: MCP3008 via SPI).
 - Enable SPI on Raspberry Pi when using MCP3008.
+
+## Docker (UV)
+Build the image:
+- `docker build -t watering .`
+
+Run (frontend on :8080, API on :5000, SQLite persisted in backend/instance):
+- `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
+
+Optional env vars for container:
+- `-e API_BASE=http://localhost:5000`
+- `-e PUMP_PIN=17`
+- `-e VALVE_PIN=27`
+- `-e MOISTURE_CHANNELS=0,1,2`
+
+### Docker: status, start, stop
+Check if the container is running:
+- `docker ps`
+
+Check all containers (including stopped):
+- `docker ps -a`
+
+Start the app container:
+- `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
+
+Stop the running container (replace NAME or ID):
+- `docker stop <container_name_or_id>`
+
+See container logs (replace NAME or ID):
+- `docker logs -f <container_name_or_id>`
+
+Quick health check:
+- frontend: `http://localhost:8080`
+- backend: `http://localhost:5000/api/health`
