@@ -1,4 +1,4 @@
-const API_BASE = "";
+const API_BASE = window.__API_BASE__ || "";
 
 const elements = {
   healthPill: document.getElementById("healthPill"),

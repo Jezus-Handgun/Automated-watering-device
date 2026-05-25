@@ -11,6 +11,15 @@ def create_app():
     app.config.from_object(Config)
 
     os.makedirs(app.instance_path, exist_ok=True)
+    db_path = app.config.get("DATABASE_PATH", "instance/watering.db")
+    if not os.path.isabs(db_path):
+        for prefix in ("instance" + os.sep, "instance/"):
+            if db_path.startswith(prefix):
+                db_path = db_path[len(prefix) :]
+                break
+        db_path = os.path.join(app.instance_path, db_path)
+    app.config["DATABASE_PATH"] = db_path
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
     app.register_blueprint(api_bp)
     app.teardown_appcontext(close_db)
