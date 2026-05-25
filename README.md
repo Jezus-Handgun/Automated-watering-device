@@ -1,6 +1,33 @@
 # Automated-watering-device
 
-Automatyczne urządzenie do podlewania roślin
+Automated plant watering device
+
+## Requirements
+
+- Python 3.12+ (only for running without Docker)
+- UV (only for running without Docker)
+- Docker (optional)
+
+Note: if you only use Docker, a local UV installation is not required.
+
+### Install UV (Windows)
+
+Run in the VS Code terminal (PowerShell) or in PowerShell:
+
+- `powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"`
+
+After installation, close and reopen the terminal (or VS Code) to refresh PATH.
+
+### Install UV (Linux)
+
+Run in a terminal (bash/zsh):
+
+- `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+After installation, close and reopen the terminal. If `uv` is not on PATH,
+add it in your shell rc file (for example `~/.bashrc`):
+
+- `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"`
 
 ## Structure
 
