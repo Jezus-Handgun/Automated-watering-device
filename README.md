@@ -72,6 +72,19 @@ Optional env vars (pins and sensors):
 - `MOISTURE_CHANNELS=0,1,2`
 - `DATABASE_PATH=instance/watering.db`
 
+## Swagger UI (Flasgger)
+
+Install:
+
+1. `uv venv`
+2. `uv pip install -r backend/requirements.txt`
+
+Use:
+
+1. Run the API: `uv run python backend/run.py`
+2. Open Swagger UI: [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
+3. Open raw spec (JSON): [http://localhost:5000/apispec_1.json](http://localhost:5000/apispec_1.json)
+
 ## Frontend (static)
 
 Serve with any static server from `frontend/`, for example:
@@ -98,6 +111,7 @@ Open in browser:
 
 - [http://localhost:8080](http://localhost:8080)
 - [http://localhost:5000/api/health](http://localhost:5000/api/health)
+- [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
 
 ### Ubuntu (bash)
 
@@ -115,6 +129,7 @@ Open in browser:
 
 - [http://localhost:8080](http://localhost:8080)
 - [http://localhost:5000/api/health](http://localhost:5000/api/health)
+- [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
 
 ## API sketch
 
