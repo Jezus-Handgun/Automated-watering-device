@@ -187,6 +187,44 @@ See container logs (replace NAME or ID):
 
 - `docker logs -f <container_name_or_id>`
 
+## Stopping the app
+
+### Locally (UV)
+
+- Backend: in the terminal running `uv run python backend/run.py`, press `Ctrl+C`.
+- Frontend: in the terminal running `uv run python -m http.server 8080 --directory frontend`, press `Ctrl+C`.
+
+### Docker
+
+- Check the running container: `docker ps`
+- Stop the app (frontend + backend are in one container):
+  - `docker stop <container_name_or_id>`
+- If you started without `--rm`, remove the container after stopping:
+  - `docker rm <container_name_or_id>`
+
+## Common errors (FAQ)
+
+### `failed to set up container networking ... docker0 failed: Device does not exist`
+
+**Cause:** missing `docker0` bridge or Docker daemon is stopped.
+
+**Fix (Linux):**
+
+1. Check if Docker is running:
+   - `sudo systemctl status docker --no-pager`
+2. If not running, start or restart it:
+   - `sudo systemctl start docker`
+   - `sudo systemctl restart docker`
+3. Check whether the bridge exists:
+   - `ip link show docker0`
+4. If `docker0` is still missing, load modules and restart Docker:
+   - `sudo modprobe bridge`
+   - `sudo modprobe br_netfilter`
+   - `sudo systemctl restart docker`
+5. Retry:
+   - `docker build -t watering .`
+   - `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
+
 Quick health check:
 
 Open in browser (clickable):
