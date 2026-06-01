@@ -241,6 +241,14 @@ See container logs (replace NAME or ID):
 
 **Fix (Linux):**
 
+Quick commands:
+
+- `sudo systemctl start docker`
+- `sudo modprobe bridge`
+- `sudo modprobe br_netfilter`
+- `sudo systemctl restart docker`
+- `ip link show docker0`
+
 1. Check if Docker is running:
    - `sudo systemctl status docker --no-pager`
 2. If not running, start or restart it:
