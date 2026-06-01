@@ -16,6 +16,16 @@ printf 'window.__API_BASE__ = "%s";\n' "$API_BASE" > /app/frontend/config.js
 uv run python backend/run.py &
 backend_pid=$!
 
-uv run python -m http.server 8080 --directory /app/frontend
+uv run python -m http.server 8080 --directory /app/frontend &
+frontend_pid=$!
 
-wait "$backend_pid"
+cleanup() {
+  set +e
+  kill -TERM "$backend_pid" "$frontend_pid" 2>/dev/null || true
+  wait "$backend_pid" "$frontend_pid" 2>/dev/null || true
+}
+
+trap cleanup SIGTERM SIGINT
+
+wait -n "$backend_pid" "$frontend_pid"
+cleanup

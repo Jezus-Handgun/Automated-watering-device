@@ -34,6 +34,7 @@ add it in your shell rc file (for example `~/.bashrc`):
 ```
 .
 ├── .dockerignore
+├── docker-compose.yml
 ├── Dockerfile
 ├── backend/
 │   ├── app/
@@ -44,6 +45,11 @@ add it in your shell rc file (for example `~/.bashrc`):
 │   │   ├── db.py
 │   │   ├── routes.py
 │   │   └── schema.sql
+│   ├── tests/
+│   │   ├── conftest.py
+│   │   ├── test_api.py
+│   │   └── test_hardware_connection.py
+│   ├── requirements-dev.txt
 │   ├── requirements.txt
 │   └── run.py
 ├── docker/
@@ -71,6 +77,7 @@ Optional env vars (pins and sensors):
 - `VALVE_PIN=27`
 - `MOISTURE_CHANNELS=0,1,2`
 - `DATABASE_PATH=instance/watering.db`
+- `APP_DEBUG=1`
 
 ## Swagger UI (Flasgger)
 
@@ -136,6 +143,7 @@ Open in browser:
 - `GET /api/health`
 - `GET /api/status`
 - `GET /api/moisture`
+- `GET /api/hardware/probe`
 - `POST /api/pump` { "on": true }
 - `POST /api/valve` { "open": true }
 - `POST /api/water` { "seconds": 5, "zone": 0 }
@@ -163,6 +171,25 @@ Optional env vars for container:
 - `-e PUMP_PIN=17`
 - `-e VALVE_PIN=27`
 - `-e MOISTURE_CHANNELS=0,1,2`
+- `-e APP_DEBUG=1`
+
+## Docker Compose
+
+Build and start:
+
+- `docker compose up --build`
+
+Start in background:
+
+- `docker compose up -d --build`
+
+Stop and remove containers:
+
+- `docker compose down`
+
+View logs:
+
+- `docker compose logs -f`
 
 ### Docker: status, start, stop
 
@@ -202,6 +229,10 @@ See container logs (replace NAME or ID):
 - If you started without `--rm`, remove the container after stopping:
   - `docker rm <container_name_or_id>`
 
+### Docker Compose
+
+- Stop and remove containers: `docker compose down`
+
 ## Common errors (FAQ)
 
 ### `failed to set up container networking ... docker0 failed: Device does not exist`
@@ -236,3 +267,65 @@ Quick health check:
 
 - frontend: `http://localhost:8080`
 - backend: `http://localhost:5000/api/health`
+
+## Testing
+
+Install test deps:
+
+- `uv pip install -r backend/requirements-dev.txt`
+
+Run API/unit tests:
+
+- `uv run pytest`
+
+Run hardware checks (Raspberry Pi only):
+
+- `RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s`
+
+Notes:
+
+- Hardware checks require GPIO access and SPI enabled for MCP3008.
+- The tests print detected components and report OK/FAIL via assertions.
+
+Expected results:
+
+- `uv run pytest` should finish with all tests passing (example: `X passed`).
+- Without `RUN_HARDWARE_TESTS=1`, hardware tests are skipped (shown as `skipped`).
+- With `RUN_HARDWARE_TESTS=1`, the output should list one line per component
+  (Pump, Valve, and each moisture channel) with `status=ok`.
+- Any `status=fail` or `FAIL:` assertion means a missing device, wiring issue,
+  GPIO/SPI not enabled, or missing drivers.
+
+Example output (unit/API tests):
+
+```text
+$ uv run pytest
+============================= test session starts =============================
+collected 6 items
+
+backend/tests/test_api.py ......                                       [100%]
+
+============================== 6 passed in 0.12s ==============================
+```
+
+Example output (hardware checks OK):
+
+```text
+$ RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s
+Pump: ok location=GPIO17 driver=OutputDevice pin=17 pin_factory=PiGPIOFactory value=0.0
+Valve: ok location=GPIO27 driver=OutputDevice pin=27 pin_factory=PiGPIOFactory value=0.0
+Moisture CH0: ok location=MCP3008:CH0 driver=MCP3008 channel=0 pin_factory=PiGPIOFactory value=0.412
+Moisture CH1: ok location=MCP3008:CH1 driver=MCP3008 channel=1 pin_factory=PiGPIOFactory value=0.387
+Moisture CH2: ok location=MCP3008:CH2 driver=MCP3008 channel=2 pin_factory=PiGPIOFactory value=0.401
+============================== 3 passed in 0.45s ==============================
+```
+
+Example output (hardware checks FAIL):
+
+```text
+$ RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s
+Pump: fail location=GPIO17 driver=OutputDevice pin=17 pin_factory=None error=...
+Valve: fail location=GPIO27 driver=OutputDevice pin=27 pin_factory=None error=...
+Moisture CH0: fail location=MCP3008:CH0 driver=MCP3008 channel=0 pin_factory=None error=...
+E   AssertionError: FAIL: hardware probe failed. Pump (...); Valve (...)
+```

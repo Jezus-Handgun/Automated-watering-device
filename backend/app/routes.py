@@ -1,59 +1,44 @@
 from flask import Blueprint, current_app, request
 
-from .hardware.gpio_controller import HardwareConfig, WateringHardware
+from .hardware.gpio_controller import (
+    build_hardware_config,
+    probe_hardware,
+    WateringHardware,
+)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
-def _parse_bool(value, default=False):
+def _parse_bool_strict(value):
     if isinstance(value, bool):
-        return value
-    if value is None:
-        return default
+        return True, value
     if isinstance(value, (int, float)):
-        return value != 0
+        return True, value != 0
     if isinstance(value, str):
         text = value.strip().lower()
         if text in ("true", "1", "yes", "y", "on"):
-            return True
+            return True, True
         if text in ("false", "0", "no", "n", "off"):
-            return False
-    return default
+            return True, False
+    return False, None
 
 
-def _parse_int(value, default, min_value=None, max_value=None):
+def _parse_int_strict(value, min_value=None, max_value=None):
     try:
         number = int(value)
     except (TypeError, ValueError):
-        return default
+        return False, None
     if min_value is not None and number < min_value:
-        return default
+        return False, None
     if max_value is not None and number > max_value:
-        return default
-    return number
-
-
-def _build_hardware_config():
-    channels_raw = current_app.config.get("MOISTURE_CHANNELS", "0,1,2")
-    channels = []
-    for part in channels_raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
-        try:
-            channels.append(int(part))
-        except ValueError:
-            continue
-    return HardwareConfig(
-        pump_pin=current_app.config.get("PUMP_PIN", 17),
-        valve_pin=current_app.config.get("VALVE_PIN", 27),
-        moisture_channels=channels,
-    )
+        return False, None
+    return True, number
 
 
 def _get_hardware():
     if "hardware" not in current_app.extensions:
-        current_app.extensions["hardware"] = WateringHardware(_build_hardware_config())
+        current_app.extensions["hardware"] = WateringHardware(
+            build_hardware_config(current_app.config))
     return current_app.extensions["hardware"]
 
 
@@ -74,10 +59,22 @@ def moisture():
     return {"hardware_available": hw.available, "readings": hw.read_moisture()}
 
 
+@api_bp.get("/hardware/probe")
+def hardware_probe():
+    config = build_hardware_config(current_app.config)
+    return probe_hardware(config)
+
+
 @api_bp.post("/pump")
 def pump():
-    data = request.get_json(silent=True) or {}
-    on_value = _parse_bool(data.get("on"), default=True)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Invalid JSON body."}, 400
+    if "on" not in data:
+        return {"error": "Field 'on' is required."}, 400
+    ok, on_value = _parse_bool_strict(data.get("on"))
+    if not ok:
+        return {"error": "Field 'on' must be boolean."}, 400
     hw = _get_hardware()
     hw.set_pump(on_value)
     return {"status": "ok", "on": on_value}
@@ -85,8 +82,14 @@ def pump():
 
 @api_bp.post("/valve")
 def valve():
-    data = request.get_json(silent=True) or {}
-    open_value = _parse_bool(data.get("open"), default=True)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Invalid JSON body."}, 400
+    if "open" not in data:
+        return {"error": "Field 'open' is required."}, 400
+    ok, open_value = _parse_bool_strict(data.get("open"))
+    if not ok:
+        return {"error": "Field 'open' must be boolean."}, 400
     hw = _get_hardware()
     hw.set_valve(open_value)
     return {"status": "ok", "open": open_value}
@@ -94,9 +97,25 @@ def valve():
 
 @api_bp.post("/water")
 def water():
-    data = request.get_json(silent=True) or {}
-    seconds = _parse_int(data.get("seconds"), default=5, min_value=1, max_value=600)
-    zone = _parse_int(data.get("zone"), default=0, min_value=0, max_value=16)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Invalid JSON body."}, 400
+    if "seconds" not in data:
+        return {"error": "Field 'seconds' is required."}, 400
+    ok, seconds = _parse_int_strict(data.get("seconds"),
+                                    min_value=1, max_value=600)
+    if not ok:
+        return {
+            "error": "Field 'seconds' must be an integer between 1 and 600."
+        }, 400
+    zone = 0
+    if "zone" in data:
+        ok, zone = _parse_int_strict(data.get("zone"),
+                                     min_value=0, max_value=16)
+        if not ok:
+            return {
+                "error": "Field 'zone' must be an integer between 0 and 16."
+            }, 400
     hw = _get_hardware()
     hw.water_for(seconds=seconds, zone=zone)
     return {"status": "ok", "seconds": seconds, "zone": zone}
