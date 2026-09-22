@@ -2,30 +2,9 @@
 set -euo pipefail
 
 : "${DATABASE_PATH:=/data/watering.db}"
-: "${API_BASE:=http://localhost:5000}"
-
+export DATABASE_PATH
 mkdir -p "$(dirname "$DATABASE_PATH")"
 
-if [[ ! -f "$DATABASE_PATH" ]]; then
-  echo "Initializing database at $DATABASE_PATH"
-  uv run flask --app backend/run.py init-db
-fi
-
-printf 'window.__API_BASE__ = "%s";\n' "$API_BASE" > /app/frontend/config.js
-
-uv run python backend/run.py &
-backend_pid=$!
-
-uv run python -m http.server 8080 --directory /app/frontend &
-frontend_pid=$!
-
-cleanup() {
-  set +e
-  kill -TERM "$backend_pid" "$frontend_pid" 2>/dev/null || true
-  wait "$backend_pid" "$frontend_pid" 2>/dev/null || true
-}
-
-trap cleanup SIGTERM SIGINT
-
-wait -n "$backend_pid" "$frontend_pid"
-cleanup
+# Application startup migrates the database without erasing existing records.
+# One process serves the panel/API and runs sampling independently of browsers.
+exec /app/.venv/bin/python backend/run.py

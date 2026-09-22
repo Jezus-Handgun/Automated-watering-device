@@ -1,339 +1,230 @@
-# Automated-watering-device
+# Automated watering device
 
-Automated plant watering device
+Raspberry Pi watering controller with a Flask web panel, automatic soil-based
+watering, configurable Hall flow-meter input, and SQLite history.
 
-## Requirements
+The agreed changes and their implementation status are recorded in
+[PLAN_ZMIAN.md](PLAN_ZMIAN.md). Features 1–8 are implemented; physical calibration
+and validation must use the actual sensor, pump and flow meter.
 
-- Python 3.12+ (only for running without Docker)
-- UV (only for running without Docker)
-- Docker (optional)
+## Run locally
 
-Note: if you only use Docker, a local UV installation is not required.
+Requirements: Python 3.12+ and uv.
 
-### Install UV (Windows)
-
-Run in the VS Code terminal (PowerShell) or in PowerShell:
-
-- `powershell -ExecutionPolicy Bypass -c "irm https://astral.sh/uv/install.ps1 | iex"`
-
-After installation, close and reopen the terminal (or VS Code) to refresh PATH.
-
-### Install UV (Linux)
-
-Run in a terminal (bash/zsh):
-
-- `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-After installation, close and reopen the terminal. If `uv` is not on PATH,
-add it in your shell rc file (for example `~/.bashrc`):
-
-- `export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"`
-
-## Structure
-
-```
-.
-├── .dockerignore
-├── docker-compose.yml
-├── Dockerfile
-├── backend/
-│   ├── app/
-│   │   ├── hardware/
-│   │   │   └── gpio_controller.py
-│   │   ├── __init__.py
-│   │   ├── config.py
-│   │   ├── db.py
-│   │   ├── routes.py
-│   │   └── schema.sql
-│   ├── tests/
-│   │   ├── conftest.py
-│   │   ├── test_api.py
-│   │   └── test_hardware_connection.py
-│   ├── requirements-dev.txt
-│   ├── requirements.txt
-│   └── run.py
-├── docker/
-│   └── entrypoint.sh
-└── frontend/
-    ├── app.js
-    ├── config.js
-    ├── index.html
-    └── styles.css
+```bash
+uv venv
+uv pip install -r backend/requirements.txt
+HARDWARE_MODE=simulation uv run --no-sync python backend/run.py
 ```
 
-## Backend (UV)
-
-1. Create venv and install deps:
-   - `uv venv`
-   - `uv pip install -r backend/requirements.txt`
-2. Initialize SQLite:
-   - `uv run flask --app backend/run.py init-db`
-3. Run API:
-   - `uv run python backend/run.py`
-
-Optional env vars (pins and sensors):
-
-- `PUMP_PIN=17`
-- `VALVE_PIN=27`
-- `MOISTURE_CHANNELS=0,1,2`
-- `DATABASE_PATH=instance/watering.db`
-- `APP_DEBUG=1`
-
-## Swagger UI (Flasgger)
-
-Install:
-
-1. `uv venv`
-2. `uv pip install -r backend/requirements.txt`
-
-Use:
-
-1. Run the API: `uv run python backend/run.py`
-2. Open Swagger UI: [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
-3. Open raw spec (JSON): [http://localhost:5000/apispec_1.json](http://localhost:5000/apispec_1.json)
-
-## Frontend (static)
-
-Serve with any static server from `frontend/`, for example:
-
-- `uv run python -m http.server 8080 --directory frontend`
-
-If served from another host, add CORS in Flask or serve frontend from Flask.
-
-## Run locally (Windows / Ubuntu)
-
-### Windows (PowerShell)
-
-1. Create venv and install deps:
-   - `uv venv`
-   - `uv pip install -r backend/requirements.txt`
-2. Initialize SQLite:
-   - `uv run flask --app backend/run.py init-db`
-3. Run API:
-   - `uv run python backend/run.py`
-4. Serve frontend (new terminal):
-   - `uv run python -m http.server 8080 --directory frontend`
-
-Open in browser:
-
-- [http://localhost:8080](http://localhost:8080)
-- [http://localhost:5000/api/health](http://localhost:5000/api/health)
-- [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
-
-### Ubuntu (bash)
-
-1. Create venv and install deps:
-   - `uv venv`
-   - `uv pip install -r backend/requirements.txt`
-2. Initialize SQLite:
-   - `uv run flask --app backend/run.py init-db`
-3. Run API:
-   - `uv run python backend/run.py`
-4. Serve frontend (new terminal):
-   - `uv run python -m http.server 8080 --directory frontend`
-
-Open in browser:
-
-- [http://localhost:8080](http://localhost:8080)
-- [http://localhost:5000/api/health](http://localhost:5000/api/health)
-- [http://localhost:5000/apidocs/](http://localhost:5000/apidocs/)
-
-## API sketch
-
-- `GET /api/health`
-- `GET /api/status`
-- `GET /api/moisture`
-- `GET /api/hardware/probe`
-- `POST /api/pump` { "on": true }
-- `POST /api/valve` { "open": true }
-- `POST /api/water` { "seconds": 5, "zone": 0 }
-
-## Hardware notes
-
-- Pump and valve are driven as GPIO outputs.
-- Soil sensors with analog output need an ADC (example: MCP3008 via SPI).
-- Enable SPI on Raspberry Pi when using MCP3008.
-
-## Docker (UV)
-
-Build the image:
-
-- `docker build -t watering .`
-
-Run (frontend on :8080, API on :5000, SQLite persisted in backend/instance):
-
-- Windows (PowerShell): `docker run --rm -p 5000:5000 -p 8080:8080 -v ${PWD}/backend/instance:/data watering`
-- Ubuntu (bash): `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
-
-Optional env vars for container:
-
-- `-e API_BASE=http://localhost:5000`
-- `-e PUMP_PIN=17`
-- `-e VALVE_PIN=27`
-- `-e MOISTURE_CHANNELS=0,1,2`
-- `-e APP_DEBUG=1`
-
-## Docker Compose
-
-Build and start:
-
-- `docker compose up --build`
-
-Start in background:
-
-- `docker compose up -d --build`
-
-Stop and remove containers:
-
-- `docker compose down`
-
-View logs:
-
-- `docker compose logs -f`
-
-### Docker: status, start, stop
-
-Check if the container is running:
-
-- `docker ps`
-
-Check all containers (including stopped):
-
-- `docker ps -a`
-
-Start the app container:
-
-- Windows (PowerShell): `docker run --rm -p 5000:5000 -p 8080:8080 -v ${PWD}/backend/instance:/data watering`
-- Ubuntu (bash): `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
-
-Stop the running container (replace NAME or ID):
-
-- `docker stop <container_name_or_id>`
-
-See container logs (replace NAME or ID):
-
-- `docker logs -f <container_name_or_id>`
-
-## Stopping the app
-
-### Locally (UV)
-
-- Backend: in the terminal running `uv run python backend/run.py`, press `Ctrl+C`.
-- Frontend: in the terminal running `uv run python -m http.server 8080 --directory frontend`, press `Ctrl+C`.
-
-### Docker
-
-- Check the running container: `docker ps`
-- Stop the app (frontend + backend are in one container):
-  - `docker stop <container_name_or_id>`
-- If you started without `--rm`, remove the container after stopping:
-  - `docker rm <container_name_or_id>`
-
-### Docker Compose
-
-- Stop and remove containers: `docker compose down`
-
-## Common errors (FAQ)
-
-### `failed to set up container networking ... docker0 failed: Device does not exist`
-
-**Cause:** missing `docker0` bridge or Docker daemon is stopped.
-
-**Fix (Linux):**
-
-Quick commands:
-
-- `sudo systemctl start docker`
-- `sudo modprobe bridge`
-- `sudo modprobe br_netfilter`
-- `sudo systemctl restart docker`
-- `ip link show docker0`
-
-1. Check if Docker is running:
-   - `sudo systemctl status docker --no-pager`
-2. If not running, start or restart it:
-   - `sudo systemctl start docker`
-   - `sudo systemctl restart docker`
-3. Check whether the bridge exists:
-   - `ip link show docker0`
-4. If `docker0` is still missing, load modules and restart Docker:
-   - `sudo modprobe bridge`
-   - `sudo modprobe br_netfilter`
-   - `sudo systemctl restart docker`
-5. Retry:
-   - `docker build -t watering .`
-   - `docker run --rm -p 5000:5000 -p 8080:8080 -v $(pwd)/backend/instance:/data watering`
-
-Quick health check:
-
-Open in browser (clickable):
-
-- [http://localhost:8080](http://localhost:8080)
-- [http://localhost:5000/api/health](http://localhost:5000/api/health)
-
-Quick health check:
-
-- frontend: `http://localhost:8080`
-- backend: `http://localhost:5000/api/health`
-
-## Testing
-
-Install test deps:
-
-- `uv pip install -r backend/requirements-dev.txt`
-
-Run API/unit tests:
-
-- `uv run pytest`
-
-Run hardware checks (Raspberry Pi only):
-
-- `RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s`
-
-Notes:
-
-- Hardware checks require GPIO access and SPI enabled for MCP3008.
-- The tests print detected components and report OK/FAIL via assertions.
-
-Expected results:
-
-- `uv run pytest` should finish with all tests passing (example: `X passed`).
-- Without `RUN_HARDWARE_TESTS=1`, hardware tests are skipped (shown as `skipped`).
-- With `RUN_HARDWARE_TESTS=1`, the output should list one line per component
-  (Pump, Valve, and each moisture channel) with `status=ok`.
-- Any `status=fail` or `FAIL:` assertion means a missing device, wiring issue,
-  GPIO/SPI not enabled, or missing drivers.
-
-Example output (unit/API tests):
-
-```text
-$ uv run pytest
-============================= test session starts =============================
-collected 6 items
-
-backend/tests/test_api.py ......                                       [100%]
-
-============================== 6 passed in 0.12s ==============================
+Windows PowerShell:
+
+```powershell
+$env:HARDWARE_MODE = "simulation"
+uv run --no-sync python backend/run.py
 ```
 
-Example output (hardware checks OK):
+Open **http://localhost:5000/**, or `http://<server-ip>:5000/` on another device.
+The panel and API share one address. SQLite is created/migrated automatically.
+The sampling worker starts with the process and keeps recording measurements
+with no browser open. Stop with `Ctrl+C`.
 
-```text
-$ RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s
-Pump: ok location=GPIO17 driver=OutputDevice pin=17 pin_factory=PiGPIOFactory value=0.0
-Valve: ok location=GPIO27 driver=OutputDevice pin=27 pin_factory=PiGPIOFactory value=0.0
-Moisture CH0: ok location=MCP3008:CH0 driver=MCP3008 channel=0 pin_factory=PiGPIOFactory value=0.412
-Moisture CH1: ok location=MCP3008:CH1 driver=MCP3008 channel=1 pin_factory=PiGPIOFactory value=0.387
-Moisture CH2: ok location=MCP3008:CH2 driver=MCP3008 channel=2 pin_factory=PiGPIOFactory value=0.401
-============================== 3 passed in 0.45s ==============================
+For a configured Raspberry Pi, use `HARDWARE_MODE=real` (the default), enable SPI
+and provide GPIO permissions. Missing GPIO is an error, never a silent switch to
+simulation. Simulation does not fabricate sensor measurements or flow pulses;
+it records explicitly marked missing samples until a test injects readings.
+
+Use **one process** per device. The runner disables Flask's debugger/reloader and
+handles SIGINT/SIGTERM. A deployment that imports `create_app()` directly must
+call `start_services(app)` once to start sampling, and `close_app(app)` on exit.
+The Flask server remains a development server. Authentication and production
+server setup are separate planned tasks.
+
+## Automatic watering
+
+Automation starts **disabled**. Configure it in the panel and save settings:
+
+1. Select the connected moisture channel.
+2. Record raw dry and wet reference readings for your sensor and substrate. Use
+   the capture buttons or enter readings in the 0–1 ADC range. Both polarities
+   are supported; references must differ by at least 0.01. Changing the channel
+   requires new calibration.
+3. Set the start and stop thresholds (defaults 30% and 50%). These are relative
+   calibrated values, not a measurement of volumetric water content.
+4. Set the median-filter window (default 3 samples), measurement interval
+   (10 seconds), portion (5 seconds) and soak period (300 seconds).
+5. Choose a daily time budget, then explicitly enable automation and save.
+
+At or below the lower threshold, the controller starts a series of small
+portions. Between portions it waits for absorption and collects a **new complete
+filter window**. The series continues until reaching the upper threshold.
+Missing/non-finite readings and ADC saturation block automatic starts. An invalid
+selected sensor reading during an automatic cycle stops that cycle. Manual
+sessions take precedence while active.
+
+The daily budget uses UTC calendar days and survives restarts. Before each cycle,
+the database reserves its **full requested time limit**, including manual,
+failed and cancelled cycles. Automation cannot reserve beyond the budget. This
+conservative accounting avoids exceeding the automatic allowance after a crash;
+it is not the elapsed pump-time metric. Explicit manual commands can exceed this
+automatic budget. History separately stores actual session duration.
+
+**Stop all disables automation persistently**, cancels the current session and
+attempts to switch off both outputs independently. Normal process shutdown keeps
+the saved automation preference. On restart it waits out the soak period and
+collects fresh readings. Unfinished recorded sessions become `interrupted`, keep
+their budget reservations and never resume mid-cycle.
+
+## Flow meter and volume control
+
+The exact meter model is not assumed. Set its free BCM GPIO with `FLOW_PIN`.
+`FLOW_PULL_UP=1` counts activations on falling edges; `0` uses a pull-down and
+counts rising edges. There is no software debounce to discard legitimate Hall
+pulses. Select electrical interfacing and signal levels for the actual device;
+do not connect an unverified 5 V signal directly to GPIO.
+
+Calibration options in the panel:
+
+- Enter the verified **pulses per liter** coefficient; or
+- Run a short timed cycle, collect the output in a measuring container, then
+  select the completed history run ID and enter the measured milliliters.
+  The coefficient is `recorded pulses × 1000 / measured ml`.
+
+Before calibration, timed cycles still count pulses, but their volume is unknown
+(`null`, not zero). Volume-controlled cycles require both configured GPIO and a
+calibration coefficient. Set the desired milliliters **and** a maximum duration.
+The pump stops when pulse count reaches the target; timeout before the target is
+an error. Volume resolution is one pulse; the 50 ms monitoring interval and
+physical shutdown latency can cause overshoot. Calibrate under real operating
+conditions and choose a meter suited to the actual low flow rate.
+
+When a flow input is configured, all pump modes monitor pulses. No pulse for the
+configured interval (default 5 seconds) stops the pump and valve with an error.
+A timed cycle ending without any pulse also fails, even if shorter than that
+interval. A valve-only manual session does not require flow. Flow/control faults
+block new starts until the cause is resolved and the process restarted.
+
+Settings and calibration are stored separately for `real` and `simulation` modes.
+No physical pulses or moisture samples are generated by simulation itself.
+
+## Manual operation
+
+Only **zone 0** is supported. A cycle lasts 1–600 seconds. HTTP start returns
+**202 Accepted**, not a completion confirmation; inspect `/api/status`.
+Conflicting commands return 409. Open the valve before manually starting the
+pump. Stopping the pump also closes the valve. Manual output control expires after
+`MANUAL_TIMEOUT_SECONDS` (default 60), counted from opening the valve; repeated ON
+commands do not extend the deadline.
+
+Safety cleanup cannot handle SIGKILL, power loss, a hung process or a physical
+relay failure. GPIO/ADC diagnostics verify software access, not actual water flow.
+
+## History and database
+
+`DATABASE_PATH` selects the SQLite file. Migrations run transactionally at startup
+and `init-db` is now **non-destructive**:
+
+```bash
+uv run --no-sync flask --app backend/run.py init-db
 ```
 
-Example output (hardware checks FAIL):
+The previous `moisture_readings` and `water_events` tables are kept intact and
+imported once into the new history tables. Old cycles are marked `legacy` because
+their actual outcome/volume was not recorded. New history includes raw and
+calibrated moisture, invalid samples, cycle source/status, requested timeout,
+elapsed session time, pulse count, delivered volume, and error events.
 
-```text
-$ RUN_HARDWARE_TESTS=1 uv run pytest backend/tests/test_hardware_connection.py -s
-Pump: fail location=GPIO17 driver=OutputDevice pin=17 pin_factory=None error=...
-Valve: fail location=GPIO27 driver=OutputDevice pin=27 pin_factory=None error=...
-Moisture CH0: fail location=MCP3008:CH0 driver=MCP3008 channel=0 pin_factory=None error=...
-E   AssertionError: FAIL: hardware probe failed. Pump (...); Valve (...)
+The panel shows a moisture chart with gaps for missing/invalid measurements,
+cycles and errors. The chart shows at most the **latest 300 samples** in the chosen
+24-hour/7-day/30-day range. Older run/event pages are available with buttons; the
+API also paginates older readings. Displayed dates use the browser's timezone;
+storage and daily budgets use UTC. The history view separates simulation and real
+records. Records are not automatically deleted; plan storage/backup for long runs.
+
+Database errors prevent a new cycle from starting without its history/budget
+reservation. A write failure during a cycle causes a stop when detected. If its
+final result cannot be saved, startup recovery marks it interrupted.
+
+## Configuration
+
+| Environment variable     | Default                | Purpose                                                           |
+| ------------------------ | ---------------------- | ----------------------------------------------------------------- |
+| `HARDWARE_MODE`          | `real`                 | `real` or `simulation`                                            |
+| `PUMP_PIN`               | `17`                   | Pump BCM pin                                                      |
+| `VALVE_PIN`              | `27`                   | Valve BCM pin                                                     |
+| `MOISTURE_CHANNELS`      | `0,1,2`                | Unique MCP3008 channels 0–7; use `0` for one sensor               |
+| `MANUAL_TIMEOUT_SECONDS` | `60`                   | Manual session timeout, 1–600 seconds                             |
+| `FLOW_PIN`               | unset                  | Optional pulse-input BCM pin                                      |
+| `FLOW_PULL_UP`           | `1`                    | `1`: pull-up/falling activation, `0`: pull-down/rising activation |
+| `DATABASE_PATH`          | `instance/watering.db` | SQLite path (relative paths use Flask's instance directory)       |
+
+Pins must be unique, in 0–27, and avoid SPI pins 7–11 when ADC channels are enabled.
+Pump/valve outputs currently use `active_high=True`; configurable relay polarity
+is a separate planned improvement. Automation settings, thresholds, time limits
+and calibration are saved through the panel/API in SQLite, not environment vars.
+
+## API
+
+| Method    | Endpoint                | Purpose / body                                              |
+| --------- | ----------------------- | ----------------------------------------------------------- |
+| GET       | `/api/health`           | Process liveness                                            |
+| GET       | `/api/status`           | Hardware, active cycle/volume, automation reason and budget |
+| GET       | `/api/moisture`         | Raw readings, last filtered samples and timestamp           |
+| GET       | `/api/hardware/probe`   | Inspect existing GPIO/ADC objects                           |
+| POST      | `/api/water`            | `{"seconds":5,"zone":0}` or `{"seconds":30,"volume_ml":50}` |
+| POST      | `/api/pump`             | `{"on":true}` or `{"on":false}`                             |
+| POST      | `/api/valve`            | `{"open":true}` or `{"open":false}`                         |
+| POST      | `/api/stop`             | Disable automation and stop both outputs                    |
+| GET / PUT | `/api/settings`         | Read settings / update selected fields                      |
+| POST      | `/api/flow/calibrate`   | `{"run_id":12,"measured_ml":100}`                           |
+| GET       | `/api/history/readings` | Raw/filtered samples and errors                             |
+| GET       | `/api/history/runs`     | Cycle history                                               |
+| GET       | `/api/history/events`   | Error/recovery events                                       |
+
+History query parameters: `limit` (1–1000, default 100), `before` (exclusive ID
+cursor), `hours` (1–8760, default 24), `channel` (0–7, readings only). Responses
+contain `items` and `next_before`. JSON types are strict; non-finite numbers,
+fractional timeouts, unknown settings and invalid calibration are rejected.
+
+`/api/health` checks process liveness only. The API currently has no authentication.
+Swagger is not initialized; `/apidocs/` and `/apispec_1.json` remain unavailable.
+
+## Docker
+
+```bash
+docker build -t watering .
+docker run --rm -p 8080:5000 -e HARDWARE_MODE=simulation -v watering-data:/data watering
 ```
+
+Or `HARDWARE_MODE=simulation docker compose up --build` (in PowerShell set
+`$env:HARDWARE_MODE = "simulation"` before `docker compose up --build`).
+Open **http://localhost:8080/**. Compose stores the database under
+`backend/instance/`; stop with `docker compose down`.
+
+The supplied profile does not grant GPIO/SPI access. Real Raspberry Pi hardware
+requires a suitable driver and device permissions. The current host has a broken
+`docker0` bridge: tests built with `--network=host` and used isolated containers
+with `--network=none`. Fixing the host bridge is outside the application changes.
+
+## Tests
+
+```bash
+uv pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+uv run --no-sync pytest
+node frontend/tests/app.test.cjs
+node frontend/tests/features.test.cjs
+```
+
+Python tests use simulation/mock pins. Frontend tests need Node.js, but the app
+does not. Tests cover conflicts, faults, cancellation, calibration, pulse edges,
+volume/no-flow stops, filtering/hysteresis, daily budgets, background sampling,
+persistent settings, migrations, recovery and history pagination.
+
+Hardware checks are opt-in and require the application to be stopped:
+
+```bash
+HARDWARE_MODE=real RUN_HARDWARE_TESTS=1 uv run --no-sync pytest backend/tests/test_hardware_connection.py -s
+```
+
+These initialize GPIO/ADC; they are not a physical flow test. Run them only when
+the connected equipment is ready for such checks.

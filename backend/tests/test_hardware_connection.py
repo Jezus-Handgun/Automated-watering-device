@@ -49,7 +49,8 @@ def test_hardware_probe_report():
 def test_probe_component_count():
     config = _load_config()
     report = probe_hardware(config)
-    expected = 2 + len(config.moisture_channels)
+    expected = 2 + len(config.moisture_channels) + \
+        (config.flow_pin is not None)
     assert len(report["components"]) == expected, (
         f"Expected {expected} components, got {len(report['components'])}."
     )

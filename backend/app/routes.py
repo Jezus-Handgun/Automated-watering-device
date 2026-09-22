@@ -1,98 +1,102 @@
 from flask import Blueprint, current_app, request
+import sqlite3
 
-from .hardware.gpio_controller import (
-    build_hardware_config,
-    probe_hardware,
-    WateringHardware,
-)
+from .controller import ControlConflict, WateringController
+from .hardware.gpio_controller import HardwareError, WateringHardware
+from .storage import BudgetExceeded
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
-def _parse_bool_strict(value):
-    if isinstance(value, bool):
-        return True, value
-    if isinstance(value, (int, float)):
-        return True, value != 0
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in ("true", "1", "yes", "y", "on"):
-            return True, True
-        if text in ("false", "0", "no", "n", "off"):
-            return True, False
-    return False, None
+def _get_controller():
+    # Flask serves concurrent requests; initialize the GPIO owner only once.
+    with current_app.extensions["controller_lock"]:
+        if current_app.extensions.get("controller_closed"):
+            raise HardwareError("Application is shutting down.")
+        if "controller" not in current_app.extensions:
+            hardware = WateringHardware(
+                current_app.extensions["hardware_config"])
+            try:
+                current_app.extensions["controller"] = WateringController(
+                    hardware, manual_timeout=current_app.config["MANUAL_TIMEOUT_SECONDS"],
+                    store=current_app.extensions["store"])
+            except Exception:
+                hardware.close()
+                raise
+        return current_app.extensions["controller"]
 
 
-def _parse_int_strict(value, min_value=None, max_value=None):
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return False, None
-    if min_value is not None and number < min_value:
-        return False, None
-    if max_value is not None and number > max_value:
-        return False, None
-    return True, number
+@api_bp.errorhandler(HardwareError)
+def hardware_error(error):
+    return {"error": str(error)}, 503
 
 
-def _get_hardware():
-    if "hardware" not in current_app.extensions:
-        current_app.extensions["hardware"] = WateringHardware(
-            build_hardware_config(current_app.config))
-    return current_app.extensions["hardware"]
+@api_bp.errorhandler(ControlConflict)
+def control_conflict(error):
+    return {"error": str(error)}, 409
+
+
+@api_bp.errorhandler(ValueError)
+def invalid_value(error):
+    return {"error": str(error)}, 400
+
+
+@api_bp.errorhandler(sqlite3.Error)
+def storage_error(error):
+    return {"error": "History storage unavailable."}, 503
+
+
+@api_bp.errorhandler(BudgetExceeded)
+def budget_exceeded(error):
+    return {"error": str(error)}, 409
+
+
+@api_bp.after_request
+def prevent_cached_status(response):
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @api_bp.get("/health")
 def health():
+    # Process liveness, deliberately separate from hardware readiness.
     return {"status": "ok"}
 
 
 @api_bp.get("/status")
 def status():
-    hw = _get_hardware()
-    return {"hardware": hw.status()}
+    return _get_controller().status()
 
 
 @api_bp.get("/moisture")
 def moisture():
-    hw = _get_hardware()
-    return {"hardware_available": hw.available, "readings": hw.read_moisture()}
+    return _get_controller().moisture()
 
 
 @api_bp.get("/hardware/probe")
 def hardware_probe():
-    config = build_hardware_config(current_app.config)
-    return probe_hardware(config)
+    return _get_controller().probe()
+
+
+def _manual_command(device, field):
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Invalid JSON body."}, 400
+    if type(data.get(field)) is not bool:
+        return {"error": f"Field '{field}' must be a JSON boolean."}, 400
+    controller = _get_controller()
+    controller.set_manual(device, data[field])
+    return {"status": "ok", field: data[field], **controller.status()}
 
 
 @api_bp.post("/pump")
 def pump():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return {"error": "Invalid JSON body."}, 400
-    if "on" not in data:
-        return {"error": "Field 'on' is required."}, 400
-    ok, on_value = _parse_bool_strict(data.get("on"))
-    if not ok:
-        return {"error": "Field 'on' must be boolean."}, 400
-    hw = _get_hardware()
-    hw.set_pump(on_value)
-    return {"status": "ok", "on": on_value}
+    return _manual_command("pump", "on")
 
 
 @api_bp.post("/valve")
 def valve():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
-        return {"error": "Invalid JSON body."}, 400
-    if "open" not in data:
-        return {"error": "Field 'open' is required."}, 400
-    ok, open_value = _parse_bool_strict(data.get("open"))
-    if not ok:
-        return {"error": "Field 'open' must be boolean."}, 400
-    hw = _get_hardware()
-    hw.set_valve(open_value)
-    return {"status": "ok", "open": open_value}
+    return _manual_command("valve", "open")
 
 
 @api_bp.post("/water")
@@ -100,22 +104,62 @@ def water():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return {"error": "Invalid JSON body."}, 400
-    if "seconds" not in data:
-        return {"error": "Field 'seconds' is required."}, 400
-    ok, seconds = _parse_int_strict(data.get("seconds"),
-                                    min_value=1, max_value=600)
-    if not ok:
-        return {
-            "error": "Field 'seconds' must be an integer between 1 and 600."
-        }, 400
-    zone = 0
-    if "zone" in data:
-        ok, zone = _parse_int_strict(data.get("zone"),
-                                     min_value=0, max_value=16)
-        if not ok:
-            return {
-                "error": "Field 'zone' must be an integer between 0 and 16."
-            }, 400
-    hw = _get_hardware()
-    hw.water_for(seconds=seconds, zone=zone)
-    return {"status": "ok", "seconds": seconds, "zone": zone}
+    seconds = data.get("seconds")
+    if type(seconds) is not int or not 1 <= seconds <= 600:
+        return {"error": "Field 'seconds' must be a JSON integer between 1 and 600."}, 400
+    zone = data.get("zone", 0)
+    if type(zone) is not int or zone != 0:
+        return {"error": "Only zone 0 is supported; 'zone' must be the JSON integer 0."}, 400
+    if "volume_ml" in data and data["volume_ml"] is None:
+        return {"error": "volume_ml must be a finite number from 1 to 5000."}, 400
+    operation = _get_controller().start(
+        seconds, zone, target_ml=data.get("volume_ml"))
+    return {"status": "accepted", "seconds": seconds, "zone": zone, "operation": operation}, 202
+
+
+@api_bp.post("/stop")
+def stop():
+    operation = _get_controller().stop()
+    return {"status": "ok", "operation": operation}
+
+
+@api_bp.get("/settings")
+def settings():
+    controller = _get_controller()
+    with controller._lock:
+        return controller.settings.json()
+
+
+@api_bp.put("/settings")
+def update_settings():
+    return _get_controller().update_settings(request.get_json(silent=True))
+
+
+@api_bp.post("/flow/calibrate")
+def calibrate_flow():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Provide run_id and measured_ml in a JSON object."}, 400
+    return _get_controller().calibrate_flow(data.get("run_id"), data.get("measured_ml"))
+
+
+@api_bp.get("/history/<kind>")
+def history(kind):
+    if kind not in ("readings", "runs", "events"):
+        return {"error": "Unknown history type."}, 404
+
+    def parameter(name, default, low, high):
+        raw = request.args.get(name)
+        if raw is None:
+            return default
+        if not raw.isascii() or not raw.isdecimal() or not low <= int(raw) <= high:
+            raise ValueError(
+                f"{name} must be an integer from {low} to {high}.")
+        return int(raw)
+    result = current_app.extensions["store"].history(
+        kind, current_app.extensions["hardware_config"].mode == "simulation",
+        limit=parameter("limit", 100, 1, 1000),
+        before=parameter("before", None, 1, 2**63 - 1),
+        hours=parameter("hours", 24, 1, 8760),
+        channel=parameter("channel", None, 0, 7))
+    return result

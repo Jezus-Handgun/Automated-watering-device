@@ -1,23 +1,21 @@
-import os
+import signal
 
-from app import create_app
+from app import close_app, create_app, start_services
 
 app = create_app()
 
 
-def _parse_bool(value, default=False):
-    if value is None:
-        return default
-    if isinstance(value, bool):
-        return value
-    text = str(value).strip().lower()
-    if text in ("true", "1", "yes", "y", "on"):
-        return True
-    if text in ("false", "0", "no", "n", "off"):
-        return False
-    return default
+def _shutdown(signum, frame):
+    raise SystemExit(0)
 
 
 if __name__ == "__main__":
-    debug = _parse_bool(os.environ.get("APP_DEBUG"), default=False)
-    app.run(host="0.0.0.0", port=5000, debug=debug)
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
+    try:
+        start_services(app)
+        # A reloader would create another process owning the same physical pins.
+        app.run(host="0.0.0.0", port=5000, debug=False,
+                use_reloader=False, threaded=True)
+    finally:
+        close_app(app)

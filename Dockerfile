@@ -20,9 +20,8 @@ RUN uv venv && uv pip install -r backend/requirements.txt \
     && chmod +x /entrypoint.sh
 
 ENV DATABASE_PATH=/data/watering.db
-ENV API_BASE=http://localhost:5000
 
-EXPOSE 5000 8080
+EXPOSE 5000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:5000/api/health || exit 1

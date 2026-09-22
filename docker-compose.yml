@@ -1,17 +1,16 @@
-version: "3.9"
-
 services:
   watering:
     build: .
     ports:
-      - "5000:5000"
-      - "8080:8080"
+      - "8080:5000"
     volumes:
       - ./backend/instance:/data
     environment:
-      API_BASE: http://localhost:5000
       DATABASE_PATH: /data/watering.db
+      HARDWARE_MODE: ${HARDWARE_MODE:-real}
       PUMP_PIN: "17"
       VALVE_PIN: "27"
       MOISTURE_CHANNELS: "0,1,2"
-      APP_DEBUG: "0"
+      MANUAL_TIMEOUT_SECONDS: "60"
+      FLOW_PIN: ${FLOW_PIN:-}
+      FLOW_PULL_UP: ${FLOW_PULL_UP:-1}
