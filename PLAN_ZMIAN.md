@@ -41,7 +41,7 @@ do ukończenia zatwierdzonych funkcji.
 
 ## Dodatkowe propozycje z przeglądu — poza zatwierdzonym zakresem
 
-- [ ] Panel: ujednolicenie całego interfejsu w języku polskim.
+- [x] Panel: ujednolicenie całego interfejsu w języku polskim — zatwierdzone i wykonane 2026-09-23.
   Skalibrowaną wilgotność i czas ostatniego pomiaru wdrożono w 6–8;
   postęp cyklu, blokady sterowania i aktualny stan połączenia w 1–5.
 - [ ] Uwierzytelnienie poleceń sterujących urządzeniem.
@@ -221,3 +221,24 @@ wcześniejsze notatki o oczekiwaniu na zgodę na 6–8. Nie powtarzać tych etap
 - Baza nie usuwa automatycznie starych rekordów. Produkcyjne uwierzytelnienie,
   docelowy serwer, fizyczne zabezpieczenia i lokalny most `docker0` nadal
   wymagają osobnych prac zgodnie z dodatkowym planem.
+
+
+### 2026-09-23 — polska wersja aplikacji
+
+Użytkownik zatwierdził tłumaczenie tekstów widocznych w aplikacji.
+
+- Przetłumaczono nagłówki, przyciski, opisy, statusy, odliczanie, brak danych
+  i błędy połączenia. Ustawiono `lang="pl"` oraz formatowanie dat i liczb `pl-PL`.
+- Komunikaty walidacji, sterowania, diagnostyki, kalibracji, zapisu i odzyskiwania
+  danych w backendzie są po polsku. Szczegóły wyjątków bibliotek pozostają
+  w dzienniku serwera, a panel otrzymuje zrozumiały polski komunikat.
+- Historia wyświetla polskie nazwy źródeł, wyników cykli i typów zdarzeń.
+  Znane angielskie komunikaty ze starszych rekordów są tłumaczone podczas
+  wyświetlania, bez modyfikowania zapisanej historii.
+- Zachowano techniczne nazwy pól API, identyfikatory statusów, nazwy zmiennych
+  i konfiguracji, aby utrzymać zgodność interfejsu i danych.
+- Weryfikacja: **144 testy backendu zaliczone, 3 sprzętowe pominięte;
+  13 testów frontendu zaliczonych**. Kontrole składni JavaScript i
+  `git diff --check` bez błędów. Nie używano fizycznego GPIO.
+- Po aktualizacji trzeba ponownie uruchomić backend i odświeżyć stronę
+  z pominięciem pamięci podręcznej (Ctrl+Shift+R).

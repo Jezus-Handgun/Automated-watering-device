@@ -26,4 +26,4 @@ def init_db():
 @with_appcontext
 def init_db_command():
     init_db()
-    click.echo("Database schema updated; existing data preserved.")
+    click.echo("Zaktualizowano schemat bazy danych. Zachowano dotychczasowe dane.")

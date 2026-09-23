@@ -24,12 +24,14 @@ async function api(path, options = {}) {
       signal: controller.signal,
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || `Request failed: ${response.status}`);
+    if (!response.ok) throw new Error(data.error || `Żądanie nie powiodło się. Kod HTTP: ${response.status}`);
     return data;
   } catch (error) {
     if (error.name === "AbortError") {
-      throw new Error("Request timed out. Device state is unconfirmed; check status or use Stop all.");
+      throw new Error("Przekroczono czas oczekiwania. Stan urządzeń jest nieznany. Sprawdź połączenie lub użyj przycisku „Zatrzymaj wszystko”.");
     }
+    if (error instanceof TypeError) throw new Error("Nie udało się połączyć z serwerem. Sprawdź połączenie.");
+    if (error instanceof SyntaxError) throw new Error("Serwer zwrócił niepoprawną odpowiedź.");
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -49,25 +51,25 @@ function render() {
   });
   elements.pumpToggle.disabled = locked || cycle || (!hw.pump_on && hw.valve_open !== true);
   elements.valveToggle.disabled = locked || cycle || hw.pump_on !== false;
-  elements.pumpToggle.textContent = hw.pump_on ? "Stop pump" : "Start pump";
-  elements.valveToggle.textContent = hw.valve_open ? "Close valve" : "Open valve";
-  elements.healthPill.textContent = state.online ? "API: online" : "API: offline";
+  elements.pumpToggle.textContent = hw.pump_on ? "Zatrzymaj pompę" : "Uruchom pompę";
+  elements.valveToggle.textContent = hw.valve_open ? "Zamknij zawór" : "Otwórz zawór";
+  elements.healthPill.textContent = state.online ? "API: połączono" : "API: brak połączenia";
   elements.healthPill.classList.toggle("ok", state.online);
   if (!state.online) {
-    elements.hardwareState.textContent = "Status unavailable. Displayed readings may be outdated.";
-    elements.waterNote.textContent = "Device state is unknown. Stop all remains available.";
+    elements.hardwareState.textContent = "Stan urządzeń jest niedostępny. Wyświetlane pomiary mogą być nieaktualne.";
+    elements.waterNote.textContent = "Stan urządzeń jest nieznany. Przycisk „Zatrzymaj wszystko” pozostaje dostępny.";
     return;
   }
-  const label = (value, yes, no) => value === true ? yes : value === false ? no : "unknown";
-  const mode = hw.simulated ? "SIMULATION" : hw.ready ? "GPIO ready" : "unavailable";
-  elements.hardwareState.textContent = `Pump: ${label(hw.pump_on, "on", "off")} | Valve: ${label(hw.valve_open, "open", "closed")} | ${mode}${hw.error ? ` | ${hw.error}` : ""}`;
+  const label = (value, yes, no) => value === true ? yes : value === false ? no : "nieznany";
+  const mode = hw.simulated ? "SYMULACJA" : hw.ready ? "GPIO gotowe" : "niedostępne";
+  elements.hardwareState.textContent = `Pompa: ${label(hw.pump_on, "włączona", "wyłączona")} | Zawór: ${label(hw.valve_open, "otwarty", "zamknięty")} | ${mode}${hw.error ? ` | ${hw.error}` : ""}`;
   if (operation.error || hw.error) {
     elements.waterNote.textContent = operation.error || hw.error;
   } else if (operation.active) {
-    elements.waterNote.textContent = `${cycle ? "Watering" : "Manual control"}: ${operation.remaining_seconds}s remaining${hw.simulated ? " (simulation)" : ""}`;
+    elements.waterNote.textContent = `${cycle ? "Podlewanie" : "Sterowanie ręczne"}: pozostało ${operation.remaining_seconds} s${hw.simulated ? " (symulacja)" : ""}`;
   } else {
-    const messages = { completed: "Watering completed.", cancelled: "Stopped.", stopped: "Stopped.", timeout: "Manual safety timeout: outputs switched off.", failed: "Operation failed.", sensor_error: "Stopped: invalid moisture reading." };
-    elements.waterNote.textContent = messages[operation.last_result] || "Idle";
+    const messages = { completed: "Podlewanie zakończone.", cancelled: "Zatrzymano.", stopped: "Zatrzymano.", timeout: "Upłynął limit sterowania ręcznego. Wyłączono pompę i zawór.", failed: "Operacja nie powiodła się.", sensor_error: "Zatrzymano podlewanie: niepoprawny pomiar wilgotności." };
+    elements.waterNote.textContent = messages[operation.last_result] || "Gotowość";
   }
 }
 
@@ -92,17 +94,17 @@ async function refreshMoisture() {
   try {
     const data = await api("/api/moisture");
     if (data.simulated) {
-      elements.moistureReadings.textContent = "Simulation: no physical readings.";
+      elements.moistureReadings.textContent = "Symulacja: brak odczytów z rzeczywistych czujników.";
       return;
     }
     elements.moistureReadings.textContent = data.readings.length
       ? data.readings.map((value, index) => {
         const sample = data.samples?.find((item) => item.channel === data.channels[index]);
-        return `CH${data.channels[index]}: ${Number.isFinite(value) ? value.toFixed(3) : "n/a"}${Number.isFinite(sample?.moisture_percent) ? ` (${sample.moisture_percent.toFixed(1)}%)` : ""}`;
+        return `Kanał ${data.channels[index]}: ${Number.isFinite(value) ? value.toLocaleString("pl-PL", {minimumFractionDigits: 3, maximumFractionDigits: 3}) : "brak danych"}${Number.isFinite(sample?.moisture_percent) ? ` (${sample.moisture_percent.toLocaleString("pl-PL", {minimumFractionDigits: 1, maximumFractionDigits: 1})}%)` : ""}`;
       }).join(" | ")
-      : "No readings available.";
+      : "Brak dostępnych pomiarów.";
   } catch (error) {
-    elements.moistureReadings.textContent = "Read failed.";
+    elements.moistureReadings.textContent = "Nie udało się odczytać pomiarów.";
   }
 }
 

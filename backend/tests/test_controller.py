@@ -232,4 +232,4 @@ def test_shutdown_attempts_all_devices_even_when_one_close_fails(hardware, monke
     hardware.close()
     assert valve.closed
     assert hardware.closed
-    assert "injected GPIO failure" in hardware.error
+    assert "Nie udało się zwolnić urządzenia GPIO" in hardware.error

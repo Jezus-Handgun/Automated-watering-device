@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="pl">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Watering Control</title>
+    <title>Sterowanie podlewaniem</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -16,44 +16,44 @@
     <main class="shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">Automated Watering</p>
-          <h1>Raspberry Pi Control Panel</h1>
-          <p class="sub">Monitor soil moisture and trigger watering runs.</p>
+          <p class="eyebrow">Automatyczne podlewanie</p>
+          <h1>Panel sterowania Raspberry Pi</h1>
+          <p class="sub">Sprawdzaj wilgotność podłoża i steruj podlewaniem.</p>
         </div>
-        <div class="status-pill" id="healthPill">API: checking...</div>
+        <div class="status-pill" id="healthPill">API: sprawdzanie…</div>
       </header>
 
       <section class="grid">
         <article class="card">
-          <h2>Moisture sensors</h2>
-          <p class="muted">Last read</p>
-          <div id="moistureReadings" class="readings">No data yet.</div>
-          <button class="ghost" id="refreshBtn">Refresh now</button>
+          <h2>Czujniki wilgotności</h2>
+          <p class="muted">Ostatni odczyt</p>
+          <div id="moistureReadings" class="readings">Brak danych.</div>
+          <button class="ghost" id="refreshBtn">Odśwież odczyty</button>
         </article>
 
         <article class="card">
-          <h2>Manual watering</h2>
-          <p class="muted">Quick runs</p>
+          <h2>Podlewanie ręczne</h2>
+          <p class="muted">Szybkie podlewanie</p>
           <div class="button-row">
-            <button class="primary" data-seconds="5">Water 5s</button>
-            <button class="primary" data-seconds="15">Water 15s</button>
-            <button class="primary" data-seconds="30">Water 30s</button>
+            <button class="primary" data-seconds="5">Podlej przez 5 s</button>
+            <button class="primary" data-seconds="15">Podlej przez 15 s</button>
+            <button class="primary" data-seconds="30">Podlej przez 30 s</button>
           </div>
-          <button class="danger" id="stopBtn">Zatrzymaj wszystko / Stop all</button>
-          <p class="note" id="waterNote" role="status" aria-live="polite">Idle</p>
+          <button class="danger" id="stopBtn">Zatrzymaj wszystko</button>
+          <p class="note" id="waterNote" role="status" aria-live="polite">Gotowość</p>
         </article>
 
         <article class="card">
-          <h2>Hardware state</h2>
+          <h2>Stan urządzeń</h2>
           <div class="state-row">
-            <span>Pump</span>
-            <button class="toggle" data-target="pump" id="pumpToggle">Toggle</button>
+            <span>Pompa</span>
+            <button class="toggle" data-target="pump" id="pumpToggle">Przełącz</button>
           </div>
           <div class="state-row">
-            <span>Valve</span>
-            <button class="toggle" data-target="valve" id="valveToggle">Toggle</button>
+            <span>Zawór</span>
+            <button class="toggle" data-target="valve" id="valveToggle">Przełącz</button>
           </div>
-          <div class="state" id="hardwareState">Unknown</div>
+          <div class="state" id="hardwareState">Nieznany</div>
         </article>
       </section>
 
@@ -127,11 +127,11 @@
       </section>
 
       <section class="card wide">
-        <h2>Notes</h2>
+        <h2>Wskazówki</h2>
         <p class="muted">
-          Open the valve before starting the pump manually. Manual control has a safety
-          timeout. Stop all cancels the current session and switches off both outputs.
-          GPIO state does not confirm physical water flow.
+          Przed ręcznym uruchomieniem pompy otwórz zawór. Sterowanie ręczne ma limit czasu.
+          Przycisk „Zatrzymaj wszystko” przerywa sesję i wyłącza pompę oraz zawór.
+          Stan GPIO nie potwierdza rzeczywistego przepływu wody.
         </p>
       </section>
     </main>

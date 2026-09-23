@@ -20,7 +20,7 @@ class WateringController:
 
     def __init__(self, hardware, manual_timeout=60, store=None):
         if type(manual_timeout) is not int or not 1 <= manual_timeout <= 600:
-            raise ValueError("MANUAL_TIMEOUT_SECONDS must be an integer from 1 to 600.")
+            raise ValueError("MANUAL_TIMEOUT_SECONDS musi być liczbą całkowitą od 1 do 600.")
         self.hardware, self.manual_timeout, self.store = hardware, manual_timeout, store
         self._lock = threading.RLock()
         self._session = None
@@ -60,12 +60,12 @@ class WateringController:
             try:
                 self.store.event(kind, message, self.hardware.simulated)
             except Exception:
-                log.exception("Cannot persist system event")
-                self._error = self._error or "History storage unavailable."
+                log.exception("Nie udało się zapisać zdarzenia")
+                self._error = self._error or "Zapis historii jest niedostępny."
 
     def _ensure_ready(self):
         if self._closed or self._error or not self.hardware.ready:
-            raise HardwareError(self._error or self.hardware.error or "Hardware is unavailable or closed.")
+            raise HardwareError(self._error or self.hardware.error or "Sprzęt jest niedostępny lub został wyłączony.")
 
     def _volume(self, session):
         flow = self.hardware.flow()
@@ -98,8 +98,8 @@ class WateringController:
                     self.store.finish_run(session["run_id"], self._last_result, self._error or session.get("error"),
                                           max(0, time.monotonic() - session["started"]), pulses, ml)
                 except Exception:
-                    log.exception("Cannot persist watering result")
-                    self._error = "History storage unavailable; outputs switched off."
+                    log.exception("Nie udało się zapisać wyniku podlewania")
+                    self._error = "Zapis historii jest niedostępny. Wyłączono pompę i zawór."
                     self._last_result = "failed"
                     errors.append(self._error)
         if self._error:
@@ -108,7 +108,8 @@ class WateringController:
         return errors
 
     def _fail(self, exc):
-        self._error = str(exc)
+        log.exception("Błąd sterowania urządzeniem")
+        self._error = str(exc) if isinstance(exc, HardwareError) else "Błąd sterowania urządzeniem. Sprawdź dziennik serwera."
         self._finish("failed")
         raise HardwareError(self._error) from exc
 
@@ -123,7 +124,8 @@ class WateringController:
             except BudgetExceeded:
                 raise
             except Exception as exc:
-                self._fail(RuntimeError(f"Cannot record watering start: {exc}"))
+                log.exception("Nie udało się zapisać rozpoczęcia podlewania")
+                self._fail(HardwareError("Nie udało się zapisać rozpoczęcia podlewania. Sprawdź bazę danych."))
         now = time.monotonic()
         self._session = {"mode": mode, "source": source, "started": now, "deadline": now + seconds,
                          "seconds": seconds, "cancel": threading.Event(), "run_id": run_id,
@@ -152,12 +154,12 @@ class WateringController:
         if flow["configured"] and session["pump_started"] is not None:
             last = max(session["pump_started"], flow["last_pulse"] or session["pump_started"])
             if now - last >= self.settings.no_flow_timeout_seconds or (now >= session["deadline"] and pulses == 0):
-                self._error = "No flow detected while the pump is running."
+                self._error = "Nie wykryto przepływu podczas pracy pompy."
                 self._finish("failed")
                 return
         if now >= session["deadline"]:
             if session["target_ml"] is not None:
-                self._error = "Target volume was not reached within the time limit."
+                self._error = "Nie osiągnięto zadanej objętości w wyznaczonym czasie."
             self._finish("completed" if session["mode"] == "watering" else "timeout")
 
     def _wait_for_end(self, session):
@@ -169,17 +171,17 @@ class WateringController:
 
     def start(self, seconds, zone=0, target_ml=None, source="manual"):
         if type(seconds) is not int or not 1 <= seconds <= 600:
-            raise ValueError("seconds must be an integer from 1 to 600.")
+            raise ValueError("Czas podlewania musi być liczbą całkowitą od 1 do 600 sekund.")
         if type(zone) is not int or zone != 0:
-            raise ValueError("Only zone 0 is supported.")
+            raise ValueError("Obsługiwana jest tylko strefa 0.")
         if target_ml is not None and not number(target_ml, 1, 5000):
-            raise ValueError("volume_ml must be a finite number from 1 to 5000.")
+            raise ValueError("Objętość musi być skończoną liczbą od 1 do 5000 ml.")
         with self._lock:
             self._ensure_ready()
             if self._session:
-                raise ControlConflict("Another session is active. Stop it before starting watering.")
+                raise ControlConflict("Inna sesja jest aktywna. Zatrzymaj ją przed rozpoczęciem podlewania.")
             if target_ml is not None and (not self.hardware.flow()["configured"] or not self.settings.flow_pulses_per_liter):
-                raise ControlConflict("Volume control requires a configured and calibrated flow meter.")
+                raise ControlConflict("Podlewanie według objętości wymaga skonfigurowanego i skalibrowanego przepływomierza.")
             session = self._prepare("watering", seconds, source, target_ml)
             try:
                 self.hardware.set_valve(True)
@@ -194,12 +196,12 @@ class WateringController:
         with self._lock:
             self._ensure_ready()
             if self._session and self._session["mode"] == "watering":
-                raise ControlConflict("Watering is active. Use Stop all to cancel it.")
+                raise ControlConflict("Podlewanie trwa. Użyj przycisku „Zatrzymaj wszystko”, aby je przerwać.")
             state = self.hardware.status()
             if device == "pump" and on and state["valve_open"] is not True:
-                raise ControlConflict("Open the valve before starting the pump.")
+                raise ControlConflict("Otwórz zawór przed uruchomieniem pompy.")
             if device == "valve" and not on and state["pump_on"] is not False:
-                raise ControlConflict("Stop the pump before closing the valve, or use Stop all.")
+                raise ControlConflict("Zatrzymaj pompę przed zamknięciem zaworu lub użyj przycisku „Zatrzymaj wszystko”.")
             try:
                 if on:
                     new_session = self._session is None
@@ -228,7 +230,7 @@ class WateringController:
                 try:
                     self.store.save_settings(self._scope, self.settings.json())
                 except Exception:
-                    self._error = "Cannot persist disabled automation; inspect storage before restarting."
+                    self._error = "Nie udało się zapisać wyłączenia automatyki. Sprawdź bazę danych przed ponownym uruchomieniem."
                     errors.append(self._error)
             if errors:
                 raise HardwareError(self._error)
@@ -236,10 +238,10 @@ class WateringController:
 
     def update_settings(self, patch):
         if not isinstance(patch, dict) or not patch or set(patch) - set(self.settings.json()):
-            raise ValueError("Provide known settings fields in a non-empty JSON object.")
+            raise ValueError("Podaj obsługiwane pola ustawień w niepustym obiekcie JSON.")
         with self._lock:
             if self._session and patch != {"enabled": False}:
-                raise ControlConflict("Stop watering before changing settings or calibration.")
+                raise ControlConflict("Zatrzymaj podlewanie przed zmianą ustawień lub kalibracji.")
             values = self.settings.json() | patch
             if values["channel"] != self.settings.channel and not {"dry_raw", "wet_raw"} <= patch.keys():
                 values.update(dry_raw=None, wet_raw=None)
@@ -260,11 +262,11 @@ class WateringController:
 
     def calibrate_flow(self, run_id, measured_ml):
         if type(run_id) is not int or run_id < 1 or not number(measured_ml, 1, 100000):
-            raise ValueError("Provide a positive run_id and measured_ml from 1 to 100000.")
+            raise ValueError("Podaj dodatni numer cyklu i zmierzoną objętość od 1 do 100000 ml.")
         with self._lock:
             run = self.store.run(run_id) if self.store else None
             if not run or run["simulated"] != self.hardware.simulated or run["status"] == "running" or not run["pulses"]:
-                raise ValueError("Choose a finished run with recorded pulses in the current hardware mode.")
+                raise ValueError("Wybierz zakończony cykl z zapisanymi impulsami w bieżącym trybie sprzętu.")
             return self.update_settings({"flow_pulses_per_liter": 1000 * run["pulses"] / measured_ml})
 
     def _operation_status(self):
@@ -317,14 +319,15 @@ class WateringController:
                 try:
                     self.store.samples(self._latest, self.hardware.simulated, self._sampled_at)
                 except Exception as exc:
-                    self._error = f"Cannot persist sensor readings: {exc}"
+                    log.exception("Nie udało się zapisać pomiarów czujników")
+                    self._error = "Nie udało się zapisać pomiarów czujników. Sprawdź bazę danych."
                     self._finish("failed")
                     self._auto_reason = "storage_error"
                     return
             for sample in self._latest:
                 error = sample["error"]
-                if error and error != "Collecting fresh samples." and error != self._sample_errors.get(sample["channel"]):
-                    self._event("sensor_error", f"CH{sample['channel']}: {error}")
+                if error and error != "Zbieranie nowych próbek." and error != self._sample_errors.get(sample["channel"]):
+                    self._event("sensor_error", f"Kanał {sample['channel']}: {error}")
                 self._sample_errors[sample["channel"]] = error
             self._decide()
 
@@ -334,11 +337,11 @@ class WateringController:
             return
         selected = next((s for s in self._latest if s["channel"] == self.settings.channel), None)
         if not selected or selected["moisture_percent"] is None or selected["error"]:
-            if not selected or selected["error"] != "Collecting fresh samples.":
+            if not selected or selected["error"] != "Zbieranie nowych próbek.":
                 self._demand = False
             self._auto_reason = "waiting_for_valid_samples"
             if self._session and self._session["source"] == "automatic":
-                self._session["error"] = "Moisture reading became invalid."
+                self._session["error"] = "Pomiar wilgotności stał się niepoprawny."
                 self._finish("sensor_error")
             return
         if self._error or not self.hardware.ready:
@@ -384,9 +387,9 @@ class WateringController:
             try:
                 self.sample_once()
             except Exception as exc:
-                log.exception("Sampling failed")
+                log.exception("Nie udało się pobrać pomiarów")
                 with self._lock:
-                    self._error = f"Sampling failed: {exc}"
+                    self._error = "Nie udało się pobrać pomiarów. Sprawdź czujniki i dziennik serwera."
                     self._finish("failed")
             self._service_wake.wait(self.settings.sample_interval_seconds)
 

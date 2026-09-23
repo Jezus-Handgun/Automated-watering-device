@@ -36,7 +36,7 @@ class Store:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             if version > 1:
                 raise RuntimeError(
-                    "Database schema is newer than this application.")
+                    "Schemat bazy danych jest nowszy niż ta wersja aplikacji.")
             if version == 1:
                 return
             schema = Path(__file__).with_name("schema.sql").read_text()
@@ -73,11 +73,11 @@ class Store:
         now = utc_now()
         with self.connection() as db:
             changed = db.execute("""UPDATE watering_runs SET status='interrupted',
-                finished_at=?, error='Application stopped before recording completion; volume is unknown.'
+                finished_at=?, error='Aplikacja została zatrzymana przed zapisaniem wyniku. Objętość wody jest nieznana.'
                 WHERE status='running' AND simulated=?""", (now, simulated)).rowcount
             if changed:
                 db.execute("INSERT INTO system_events(kind,message,simulated,created_at) VALUES ('recovery',?,?,?)",
-                           (f"Marked {changed} unfinished sessions interrupted; reserved budgets retained.", simulated, now))
+                           (f"Oznaczono niedokończone sesje jako przerwane: {changed}. Zachowano rezerwacje budżetu.", simulated, now))
 
     def samples(self, readings, simulated, created_at):
         with self.connection() as db:
@@ -99,7 +99,7 @@ class Store:
                 WHERE created_at>=? AND simulated=? AND source!='legacy'""",
                               (now[:10] + "T00:00:00", simulated)).fetchone()[0]
             if daily_limit is not None and used + seconds > daily_limit:
-                raise BudgetExceeded("Daily watering time budget exhausted.")
+                raise BudgetExceeded("Wyczerpano dzienny budżet czasu podlewania.")
             cursor = db.execute("""INSERT INTO watering_runs
                 (source,mode,seconds,target_ml,status,simulated,created_at)
                 VALUES (?,?,?,?,'running',?,?)""", (source, mode, seconds, target_ml, simulated, now))

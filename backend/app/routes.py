@@ -12,7 +12,7 @@ def _get_controller():
     # Flask serves concurrent requests; initialize the GPIO owner only once.
     with current_app.extensions["controller_lock"]:
         if current_app.extensions.get("controller_closed"):
-            raise HardwareError("Application is shutting down.")
+            raise HardwareError("Aplikacja jest zamykana.")
         if "controller" not in current_app.extensions:
             hardware = WateringHardware(
                 current_app.extensions["hardware_config"])
@@ -43,7 +43,7 @@ def invalid_value(error):
 
 @api_bp.errorhandler(sqlite3.Error)
 def storage_error(error):
-    return {"error": "History storage unavailable."}, 503
+    return {"error": "Zapis historii jest niedostępny."}, 503
 
 
 @api_bp.errorhandler(BudgetExceeded)
@@ -81,9 +81,9 @@ def hardware_probe():
 def _manual_command(device, field):
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return {"error": "Invalid JSON body."}, 400
+        return {"error": "Niepoprawna treść żądania JSON."}, 400
     if type(data.get(field)) is not bool:
-        return {"error": f"Field '{field}' must be a JSON boolean."}, 400
+        return {"error": f"Pole '{field}' musi mieć wartość logiczną true albo false."}, 400
     controller = _get_controller()
     controller.set_manual(device, data[field])
     return {"status": "ok", field: data[field], **controller.status()}
@@ -103,15 +103,15 @@ def valve():
 def water():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return {"error": "Invalid JSON body."}, 400
+        return {"error": "Niepoprawna treść żądania JSON."}, 400
     seconds = data.get("seconds")
     if type(seconds) is not int or not 1 <= seconds <= 600:
-        return {"error": "Field 'seconds' must be a JSON integer between 1 and 600."}, 400
+        return {"error": "Czas podlewania musi być liczbą całkowitą od 1 do 600 sekund."}, 400
     zone = data.get("zone", 0)
     if type(zone) is not int or zone != 0:
-        return {"error": "Only zone 0 is supported; 'zone' must be the JSON integer 0."}, 400
+        return {"error": "Obsługiwana jest tylko strefa 0. Numer strefy musi być liczbą całkowitą 0."}, 400
     if "volume_ml" in data and data["volume_ml"] is None:
-        return {"error": "volume_ml must be a finite number from 1 to 5000."}, 400
+        return {"error": "Objętość musi być skończoną liczbą od 1 do 5000 ml."}, 400
     operation = _get_controller().start(
         seconds, zone, target_ml=data.get("volume_ml"))
     return {"status": "accepted", "seconds": seconds, "zone": zone, "operation": operation}, 202
@@ -139,14 +139,14 @@ def update_settings():
 def calibrate_flow():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
-        return {"error": "Provide run_id and measured_ml in a JSON object."}, 400
+        return {"error": "Podaj numer cyklu i zmierzoną objętość w obiekcie JSON."}, 400
     return _get_controller().calibrate_flow(data.get("run_id"), data.get("measured_ml"))
 
 
 @api_bp.get("/history/<kind>")
 def history(kind):
     if kind not in ("readings", "runs", "events"):
-        return {"error": "Unknown history type."}, 404
+        return {"error": "Nieznany rodzaj historii."}, 404
 
     def parameter(name, default, low, high):
         raw = request.args.get(name)
@@ -154,7 +154,7 @@ def history(kind):
             return default
         if not raw.isascii() or not raw.isdecimal() or not low <= int(raw) <= high:
             raise ValueError(
-                f"{name} must be an integer from {low} to {high}.")
+                f"Parametr {name} musi być liczbą całkowitą od {low} do {high}.")
         return int(raw)
     result = current_app.extensions["store"].history(
         kind, current_app.extensions["hardware_config"].mode == "simulation",

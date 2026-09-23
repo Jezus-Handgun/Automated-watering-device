@@ -124,3 +124,16 @@ test("server validation errors are displayed without reporting success", async (
   await app.run("saveForm(feature.automationForm, feature.settingsNote)");
   assert.equal(app.get("settingsNote").textContent, "Calibrate first");
 });
+
+
+test("history translates stored English statuses and messages without changing records", async () => {
+  const app = await setup();
+  app.run(`appendRuns([{id:1, created_at:'2026-09-23T10:00:00Z', source:'manual', status:'failed', elapsed_seconds:1.5, pulses:0, delivered_ml:null, error:'No flow detected while the pump is running.'}])`);
+  const cells = app.get("runsBody").children[0].children;
+  assert.equal(cells[2].textContent, "ręczne");
+  assert.equal(cells[3].textContent, "błąd");
+  assert.equal(cells[4].textContent, "1,5");
+  assert.match(cells[7].textContent, /Nie wykryto przepływu/);
+  app.run(`appendEvents([{created_at:'2026-09-23T10:00:00Z', kind:'sensor_error', message:'CH0: Missing or invalid sensor reading.'}])`);
+  assert.match(app.get("eventsList").children[0].textContent, /błąd czujnika: Kanał 0: Brak odczytu/);
+});

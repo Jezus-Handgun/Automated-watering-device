@@ -151,7 +151,7 @@ def test_sensor_failure_stops_automatic_cycle_and_logs_gap(setup):
     samples = store.history("readings", True)["items"]
     assert samples[0]["raw_value"] is None and samples[0]["error"]
     assert store.history("runs", True)[
-        "items"][0]["error"] == "Moisture reading became invalid."
+        "items"][0]["error"] == "Pomiar wilgotności stał się niepoprawny."
 
 
 def test_daily_limit_survives_restart_and_counts_manual_reservations(setup):

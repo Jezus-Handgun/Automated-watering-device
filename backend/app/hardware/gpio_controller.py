@@ -2,6 +2,9 @@ from dataclasses import dataclass, field
 from typing import List
 import threading
 import time
+import logging
+
+log = logging.getLogger(__name__)
 
 try:
     from gpiozero import MCP3008, OutputDevice, DigitalInputDevice
@@ -26,22 +29,22 @@ class HardwareConfig:
 
     def __post_init__(self):
         if self.mode not in ("real", "simulation"):
-            raise ValueError("HARDWARE_MODE must be real or simulation.")
+            raise ValueError("HARDWARE_MODE musi mieć wartość real albo simulation.")
         pins = (self.pump_pin, self.valve_pin) + (() if self.flow_pin is None else (self.flow_pin,))
         if any(type(pin) is not int or not 0 <= pin <= 27 for pin in pins):
             raise ValueError(
-                "Pump and valve pins must be BCM integers from 0 to 27.")
+                "Numery pinów BCM muszą być liczbami całkowitymi od 0 do 27.")
         if len(set(pins)) != len(pins):
-            raise ValueError("Pump, valve and flow meter must use different GPIO pins.")
+            raise ValueError("Pompa, zawór i przepływomierz muszą używać różnych pinów GPIO.")
         if type(self.flow_pull_up) is not bool:
-            raise ValueError("FLOW_PULL_UP must be a boolean.")
+            raise ValueError("FLOW_PULL_UP musi mieć wartość logiczną.")
         if any(type(ch) is not int or not 0 <= ch <= 7 for ch in self.moisture_channels):
-            raise ValueError("MCP3008 channels must be integers from 0 to 7.")
+            raise ValueError("Kanały MCP3008 muszą być liczbami całkowitymi od 0 do 7.")
         if len(set(self.moisture_channels)) != len(self.moisture_channels):
-            raise ValueError("MCP3008 channels must not repeat.")
+            raise ValueError("Kanały MCP3008 nie mogą się powtarzać.")
         if self.moisture_channels and set(pins) & {7, 8, 9, 10, 11}:
             raise ValueError(
-                "Actuator pins must not overlap the MCP3008 SPI pins (7–11).")
+                "Piny urządzeń nie mogą pokrywać się z pinami SPI przetwornika MCP3008 (7–11).")
 
 
 def build_hardware_config(config):
@@ -51,7 +54,7 @@ def build_hardware_config(config):
         if isinstance(value, str):
             return int(value)
         raise ValueError(
-            "Hardware configuration requires integer pins/channels.")
+            "Numery pinów i kanałów w konfiguracji sprzętu muszą być całkowite.")
 
     raw = config.get("MOISTURE_CHANNELS", "0,1,2")
     if isinstance(raw, str):
@@ -60,12 +63,12 @@ def build_hardware_config(config):
     elif isinstance(raw, (list, tuple)):
         channels = [integer(part) for part in raw]
     else:
-        raise ValueError("MOISTURE_CHANNELS must be a comma-separated list.")
+        raise ValueError("MOISTURE_CHANNELS musi być listą kanałów rozdzielonych przecinkami.")
     flow_pin = config.get("FLOW_PIN")
     pull_up = config.get("FLOW_PULL_UP", True)
     if isinstance(pull_up, str):
         if pull_up not in ("0", "1"):
-            raise ValueError("FLOW_PULL_UP must be 0 or 1.")
+            raise ValueError("FLOW_PULL_UP musi mieć wartość 0 albo 1.")
         pull_up = pull_up == "1"
     return HardwareConfig(
         pump_pin=integer(config.get("PUMP_PIN", 17)),
@@ -100,7 +103,7 @@ class WateringHardware:
         try:
             if OutputDevice is None or MCP3008 is None:
                 raise HardwareError(
-                    "gpiozero is unavailable. Install the hardware dependencies.")
+                    "Biblioteka gpiozero jest niedostępna. Zainstaluj zależności obsługi sprzętu.")
             self.pump = OutputDevice(
                 config.pump_pin, active_high=True, initial_value=False)
             self.valve = OutputDevice(
@@ -113,7 +116,8 @@ class WateringHardware:
                 self.flow_input.when_activated = self._record_pulse
             self.available = True
         except Exception as exc:
-            self.error = f"Hardware initialization failed: {exc}"
+            log.exception("Nie udało się uruchomić sprzętu")
+            self.error = "Nie udało się uruchomić sprzętu. Sprawdź konfigurację GPIO i połączenia."
             self.safe_off()
             self._close_devices()
 
@@ -129,7 +133,8 @@ class WateringHardware:
         try:
             return bool(device.value)
         except Exception as exc:
-            self.error = f"GPIO state read failed: {exc}"
+            log.exception("Nie udało się odczytać stanu GPIO")
+            self.error = "Nie udało się odczytać stanu GPIO."
             return None
 
     def status(self):
@@ -150,7 +155,7 @@ class WateringHardware:
     def _set(self, name, on):
         if on and not self.ready:
             raise HardwareError(
-                self.error or "Hardware is unavailable or closed.")
+                self.error or "Sprzęt jest niedostępny lub został wyłączony.")
         device = getattr(self, name)
         if self.simulated:
             setattr(self, f"_{name}_state", on)
@@ -158,7 +163,9 @@ class WateringHardware:
             try:
                 device.on() if on else device.off()
             except Exception as exc:
-                self.error = f"Cannot switch {name} {'on' if on else 'off'}: {exc}"
+                log.exception("Nie udało się przełączyć urządzenia: %s", name)
+                label = "pompę" if name == "pump" else "zawór"
+                self.error = f"Nie udało się {'włączyć' if on else 'wyłączyć'} urządzenia: {label}."
                 raise HardwareError(self.error) from exc
 
     def set_pump(self, on: bool):
@@ -185,7 +192,9 @@ class WateringHardware:
             try:
                 action(False)
             except Exception as exc:
-                errors.append(f"{name}: {exc}")
+                log.exception("Nie udało się wyłączyć urządzenia: %s", name)
+                label = "Pompa" if name == "pump" else "Zawór"
+                errors.append(f"{label}: nie udało się wyłączyć urządzenia.")
         if errors:
             self.error = "; ".join(errors)
         return errors
@@ -206,14 +215,14 @@ class WateringHardware:
         """Inspect owned GPIO objects without allocating or switching pins."""
         components = []
         devices = [
-            ("Pump", "gpio_output", f"GPIO{self.config.pump_pin}", self.pump),
-            ("Valve", "gpio_output",
+            ("Pompa", "gpio_output", f"GPIO{self.config.pump_pin}", self.pump),
+            ("Zawór", "gpio_output",
              f"GPIO{self.config.valve_pin}", self.valve),
         ]
         if self.config.flow_pin is not None:
-            devices.append(("Flow meter", "pulse_input", f"GPIO{self.config.flow_pin}", self.flow_input))
+            devices.append(("Przepływomierz", "pulse_input", f"GPIO{self.config.flow_pin}", self.flow_input))
         devices.extend(
-            (f"Moisture CH{ch}", "adc_channel", f"MCP3008:CH{ch}",
+            (f"Wilgotność — kanał {ch}", "adc_channel", f"MCP3008:CH{ch}",
              self.sensors[index] if index < len(self.sensors) else None)
             for index, ch in enumerate(self.config.moisture_channels)
         )
@@ -225,11 +234,12 @@ class WateringHardware:
                 try:
                     if device is None or self.closed:
                         raise HardwareError(
-                            self.error or "Device is unavailable.")
+                            self.error or "Urządzenie jest niedostępne.")
                     component.update(status="ok", value=round(float(device.value), 3),
                                      driver=type(device).__name__)
                 except Exception as exc:
-                    component.update(status="fail", error=str(exc))
+                    log.exception("Błąd diagnostyki urządzenia")
+                    component.update(status="fail", error=str(exc) if isinstance(exc, HardwareError) else "Nie udało się odczytać stanu urządzenia.")
             components.append(component)
         failed = self.error or self.closed or any(
             c["status"] == "fail" for c in components)
@@ -238,7 +248,7 @@ class WateringHardware:
             "mode": self.config.mode,
             "error": self.error,
             "physical_operation_verified": False,
-            "note": "GPIO/ADC access only; this does not verify water flow or physical device operation.",
+            "note": "Sprawdzono wyłącznie dostęp do GPIO/ADC. Nie potwierdza to przepływu wody ani fizycznego działania urządzeń.",
             "components": components,
         }
 
@@ -249,7 +259,8 @@ class WateringHardware:
                 try:
                     device.close()
                 except Exception as exc:
-                    errors.append(str(exc))
+                    log.exception("Nie udało się zwolnić urządzenia GPIO")
+                    errors.append("Nie udało się zwolnić urządzenia GPIO.")
         self.pump = self.valve = None
         self.flow_input = None
         self.sensors = []

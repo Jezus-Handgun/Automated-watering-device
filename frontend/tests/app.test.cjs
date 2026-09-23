@@ -46,7 +46,7 @@ async function setup() {
 test("same-origin API, simulation label and manual interlocks", async () => {
   const app = await setup();
   assert(app.calls.every(({ url }) => url.startsWith("/api/")));
-  assert.match(app.elements.hardwareState.textContent, /SIMULATION/);
+  assert.match(app.elements.hardwareState.textContent, /SYMULACJA/);
   assert.equal(app.elements.pumpToggle.disabled, true);
   assert.equal(app.elements.valveToggle.disabled, false);
   assert.equal(app.buttons[0].disabled, false);
@@ -60,7 +60,7 @@ test("active operation displays progress and locks controls", async () => {
   status.operation = { active: true, mode: "watering", remaining_seconds: 12 };
   app.setStatus(status);
   await app.run("refreshStatus()");
-  assert.match(app.elements.waterNote.textContent, /12s remaining/);
+  assert.match(app.elements.waterNote.textContent, /pozostało 12 s/);
   assert(app.buttons.every((button) => button.disabled));
   assert.equal(app.elements.pumpToggle.disabled, true);
   assert.equal(app.elements.valveToggle.disabled, true);
@@ -71,10 +71,10 @@ test("lost connection disables starts and keeps stop available", async () => {
   const app = await setup();
   app.intercept((url) => url === "/api/status" ? Promise.reject(new Error("offline")) : null);
   await app.run("refreshStatus()");
-  assert.match(app.elements.healthPill.textContent, /offline/);
+  assert.match(app.elements.healthPill.textContent, /brak połączenia/);
   assert(app.buttons.every((button) => button.disabled));
   assert.equal(app.elements.stopBtn.disabled, false);
-  assert.match(app.elements.waterNote.textContent, /unknown/);
+  assert.match(app.elements.waterNote.textContent, /nieznany/);
 });
 
 test("duplicate clicks blocked, stop can interrupt a pending request", async () => {
@@ -110,7 +110,7 @@ test("a status response from before a command cannot overwrite newer state", asy
   await app.buttons[0].handlers.click();
   finishOld({ ok: true, json: async () => idle() });
   await old;
-  assert.match(app.elements.waterNote.textContent, /5s remaining/);
+  assert.match(app.elements.waterNote.textContent, /pozostało 5 s/);
   assert(app.buttons.every((button) => button.disabled));
 });
 
@@ -119,5 +119,5 @@ test("sensor labels use actual configured channels", async () => {
   app.intercept((url) => url === "/api/moisture" ? Promise.resolve({ ok: true,
     json: async () => ({ simulated: false, channels: [2, 5], readings: [0.25, null] }) }) : null);
   await app.run("refreshMoisture()");
-  assert.equal(app.elements.moistureReadings.textContent, "CH2: 0.250 | CH5: n/a");
+  assert.equal(app.elements.moistureReadings.textContent, "Kanał 2: 0,250 | Kanał 5: brak danych");
 });

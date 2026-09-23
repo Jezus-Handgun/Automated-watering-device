@@ -114,7 +114,7 @@ def test_hardware_initialization_failure_is_not_simulation(tmp_path, monkeypatch
         assert state["simulated"] is False
         assert state["ready"] is False
         assert state["pump_on"] is None
-        assert "initialization failed" in state["error"]
+        assert "Nie udało się uruchomić sprzętu" in state["error"]
         response = client.post("/api/water", json={"seconds": 1})
         assert response.status_code == 503
         assert response.is_json
@@ -154,7 +154,7 @@ def test_hardware_failure_response_and_stop_remains_available(app, client, monke
     monkeypatch.setattr(controller.hardware, "set_pump", fail)
     response = client.post("/api/water", json={"seconds": 5})
     assert response.status_code == 503
-    assert "Pump failed" in response.get_json()["error"]
+    assert "Błąd sterowania urządzeniem" in response.get_json()["error"]
     assert client.post("/api/stop").status_code == 200
     state = client.get("/api/status").get_json()
     assert state["hardware"]["valve_open"] is False

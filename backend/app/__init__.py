@@ -32,7 +32,7 @@ def create_app(test_config=None):
     timeout = app.config["MANUAL_TIMEOUT_SECONDS"]
     if type(timeout) is not int or not 1 <= timeout <= 600:
         raise ValueError(
-            "MANUAL_TIMEOUT_SECONDS must be an integer from 1 to 600.")
+            "MANUAL_TIMEOUT_SECONDS musi być liczbą całkowitą od 1 do 600.")
     app.extensions["controller_lock"] = threading.Lock()
 
     os.makedirs(app.instance_path, exist_ok=True)

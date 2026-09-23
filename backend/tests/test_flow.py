@@ -30,7 +30,7 @@ def test_real_gpio_pulse_edges_are_counted(monkeypatch):
             pin.drive_high()
         assert hw.flow()["pulses"] == 4
         assert hw.flow()["last_pulse"] is not None
-        assert hw.probe()["components"][2]["name"] == "Flow meter"
+        assert hw.probe()["components"][2]["name"] == "Przepływomierz"
     finally:
         hw.close()
 
@@ -55,7 +55,7 @@ def test_no_flow_stops_both_outputs(controller):
         controller._session["pump_started"] = time.monotonic() - 6
         controller._check_session(controller._session)
     state = controller.status()
-    assert "No flow" in state["operation"]["error"]
+    assert "Nie wykryto przepływu" in state["operation"]["error"]
     assert not state["hardware"]["pump_on"]
     assert not state["hardware"]["valve_open"]
 
@@ -78,7 +78,7 @@ def test_volume_timeout_is_failure(controller):
         controller._session["deadline"] = time.monotonic() - 1
         controller._check_session(controller._session)
     assert controller.status()["operation"]["last_result"] == "failed"
-    assert "Target volume" in controller.status()["operation"]["error"]
+    assert "Nie osiągnięto zadanej objętości" in controller.status()["operation"]["error"]
 
 
 def test_no_flow_applies_to_manual_pump(controller):
@@ -121,4 +121,4 @@ def test_short_cycle_without_any_pulse_is_not_reported_successful(controller):
         controller._session["deadline"] = time.monotonic() - 0.1
         controller._check_session(controller._session)
     assert controller.status()["operation"]["last_result"] == "failed"
-    assert "No flow" in controller.status()["operation"]["error"]
+    assert "Nie wykryto przepływu" in controller.status()["operation"]["error"]
