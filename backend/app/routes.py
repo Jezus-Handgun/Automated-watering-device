@@ -1,7 +1,7 @@
 from flask import Blueprint, current_app, request
 import sqlite3
 
-from .controller import ControlConflict, WateringController
+from .controller import ControlConflict, LowWater, WateringController
 from .hardware.gpio_controller import HardwareError, WateringHardware
 from .storage import BudgetExceeded
 
@@ -31,6 +31,11 @@ def hardware_error(error):
     return {"error": str(error)}, 503
 
 
+@api_bp.errorhandler(LowWater)
+def low_water(error):
+    return {"error": str(error), "code": "low_water"}, 409
+
+
 @api_bp.errorhandler(ControlConflict)
 def control_conflict(error):
     return {"error": str(error)}, 409
@@ -48,7 +53,7 @@ def storage_error(error):
 
 @api_bp.errorhandler(BudgetExceeded)
 def budget_exceeded(error):
-    return {"error": str(error)}, 409
+    return {"error": str(error), "code": "daily_limit"}, 409
 
 
 @api_bp.after_request
@@ -133,6 +138,14 @@ def settings():
 @api_bp.put("/settings")
 def update_settings():
     return _get_controller().update_settings(request.get_json(silent=True))
+
+
+@api_bp.post("/pump/calibrate")
+def calibrate_pump():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return {"error": "Podaj numer cyklu i zmierzoną objętość w obiekcie JSON."}, 400
+    return _get_controller().calibrate_pump(data.get("run_id"), data.get("measured_ml"))
 
 
 @api_bp.post("/flow/calibrate")

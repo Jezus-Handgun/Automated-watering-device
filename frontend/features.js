@@ -79,6 +79,7 @@ function polishMessage(message) {
   return message;
 }
 const historyLabels = {
+  low_water: "brak potwierdzenia obecności wody (low_water)",
   manual: "ręczne", automatic: "automatyczne", legacy: "dane archiwalne",
   running: "w trakcie", completed: "zakończone", cancelled: "anulowane",
   stopped: "zatrzymane", timeout: "limit czasu", failed: "błąd",
@@ -95,6 +96,10 @@ const feature = Object.fromEntries(
     "flowCalibrationForm",
     "flowStatus",
     "flowNote",
+    "pumpCalibrationForm",
+    "pumpStatus",
+    "pumpNote",
+    "volumeModeOption",
     "volumeForm",
     "volumeBtn",
     "volumeProgress",
@@ -175,6 +180,10 @@ feature.flowCalibrationForm.addEventListener("submit", (event) => {
     "/api/flow/calibrate",
     "POST",
   );
+});
+feature.pumpCalibrationForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveForm(feature.pumpCalibrationForm, feature.pumpNote, "/api/pump/calibrate", "POST");
 });
 feature.volumeForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -321,8 +330,10 @@ function appendRuns(items) {
       historyLabels[row.source] || "nieznane źródło",
       historyLabels[row.status] || "nieznany wynik",
       row.elapsed_seconds == null ? "—" : row.elapsed_seconds.toLocaleString("pl-PL", {minimumFractionDigits: 1, maximumFractionDigits: 1}),
+      row.pump_seconds?.toLocaleString("pl-PL", {maximumFractionDigits: 2}) ?? "—",
       row.pulses ?? "—",
       row.delivered_ml?.toLocaleString("pl-PL") ?? "—",
+      row.estimated_ml?.toLocaleString("pl-PL") ?? "—",
       polishMessage(row.error),
     ]) {
       const td = document.createElement("td");
@@ -401,6 +412,7 @@ for (const [button, kind, append] of [
 }
 
 const reasons = {
+  low_water: "brak potwierdzenia obecności wody (low_water)",
   disabled: "wyłączona",
   waiting_for_valid_samples: "oczekiwanie na poprawne pomiary",
   collecting_samples: "zbieranie próbek",
@@ -416,17 +428,22 @@ const reasons = {
 async function updateFeatures() {
   const data = await api("/api/status");
   const auto = data.automation;
-  feature.automationStatus.textContent = `${data.hardware.simulated ? "SYMULACJA · " : ""}${reasons[auto.reason] || polishMessage(auto.reason)} · budżet ${auto.daily_used_seconds}/${auto.daily_limit_seconds} s · przerwa ${auto.soak_remaining_seconds} s${auto.sampling_active ? "" : " · zbieranie pomiarów nie działa"}`;
+  feature.automationStatus.textContent = `${data.hardware.simulated ? "SYMULACJA · " : ""}${reasons[auto.reason] || polishMessage(auto.reason)} · budżet dobowy UTC (wszystkie tryby) ${auto.daily_used_seconds}/${auto.daily_limit_seconds} s · przerwa ${auto.soak_remaining_seconds} s${auto.sampling_active ? "" : " · zbieranie pomiarów nie działa"}`;
   feature.flowStatus.textContent = !data.flow.configured
     ? "Ustaw FLOW_PIN w konfiguracji urządzenia, aby podłączyć przepływomierz."
     : data.flow.calibrated
       ? `Kalibracja: ${data.flow.pulses_per_liter.toLocaleString("pl-PL", {minimumFractionDigits: 2, maximumFractionDigits: 2})} impulsów/l.`
       : "Wejście impulsowe aktywne. Przed odmierzaniem w ml wykonaj kalibrację.";
   const run = data.operation;
-  feature.volumeProgress.textContent =
-    run.active && run.pulses !== null
-      ? `${run.pulses} impulsów · ${run.delivered_ml?.toLocaleString("pl-PL") ?? "brak kalibracji"} ml${run.target_ml ? ` / ${run.target_ml.toLocaleString("pl-PL")} ml` : ""}`
-      : "";
+  feature.volumeModeOption.disabled = !data.flow.configured || !data.flow.calibrated;
+  const factor = data.pump?.ml_per_second;
+  feature.pumpStatus.textContent = Number.isFinite(factor)
+    ? `Wydajność po kalibracji: ${factor.toLocaleString("pl-PL", {maximumFractionDigits: 4})} ml/s. Objętość szacowana z czasu pracy pompy — to nie pomiar przepływu.`
+    : "Wydajność pompy nieznana. Wykonaj kalibrację, aby otrzymywać szacunek objętości.";
+  feature.pumpCalibrationForm.querySelector("button[type=submit]").disabled = run.active;
+  feature.volumeProgress.textContent = run.active
+    ? `Pomiar przepływomierza: ${run.delivered_ml?.toLocaleString("pl-PL") ?? "brak"} ml · Szacunek pompy: ${run.estimated_ml?.toLocaleString("pl-PL") ?? "brak kalibracji"} ml · Czas pompy: ${run.pump_seconds?.toLocaleString("pl-PL", {maximumFractionDigits: 1}) ?? "—"} s${run.pulses != null ? ` · ${run.pulses} impulsów` : ""}`
+    : "";
   const moisture = await api("/api/moisture");
   feature.sampleTime.textContent = moisture.sampled_at
     ? `Ostatni zapisany pomiar: ${new Date(moisture.sampled_at).toLocaleString("pl-PL")}`

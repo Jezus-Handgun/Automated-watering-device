@@ -28,16 +28,23 @@ class HardwareConfig:
     flow_pull_up: bool = True
     pump_active_high: bool = True
     valve_active_high: bool = True
+    valve_enabled: bool = True
+    water_level_pin: int | None = None
 
     def __post_init__(self):
         if self.mode not in ("real", "simulation"):
             raise ValueError("HARDWARE_MODE musi mieć wartość real albo simulation.")
-        pins = (self.pump_pin, self.valve_pin) + (() if self.flow_pin is None else (self.flow_pin,))
+        if type(self.valve_enabled) is not bool:
+            raise ValueError("VALVE_ENABLED musi mieć wartość logiczną.")
+        pins = [self.pump_pin]
+        if self.valve_enabled:
+            pins.append(self.valve_pin)
+        pins.extend(pin for pin in (self.flow_pin, self.water_level_pin) if pin is not None)
         if any(type(pin) is not int or not 0 <= pin <= 27 for pin in pins):
             raise ValueError(
                 "Numery pinów BCM muszą być liczbami całkowitymi od 0 do 27.")
         if len(set(pins)) != len(pins):
-            raise ValueError("Pompa, zawór i przepływomierz muszą używać różnych pinów GPIO.")
+            raise ValueError("Włączone urządzenia muszą używać różnych pinów GPIO.")
         if any(type(value) is not bool for value in (self.pump_active_high, self.valve_active_high)):
             raise ValueError("Polaryzacja pompy i zaworu musi mieć wartość logiczną.")
         if type(self.flow_pull_up) is not bool:
@@ -60,7 +67,7 @@ def build_hardware_config(config):
         raise ValueError(
             "Numery pinów i kanałów w konfiguracji sprzętu muszą być całkowite.")
 
-    def polarity(name):
+    def boolean(name):
         value = config.get(name, True)
         if isinstance(value, str) and value in ("0", "1"):
             return value == "1"
@@ -77,6 +84,7 @@ def build_hardware_config(config):
     else:
         raise ValueError("MOISTURE_CHANNELS musi być listą kanałów rozdzielonych przecinkami.")
     flow_pin = config.get("FLOW_PIN")
+    water_pin = config.get("WATER_LEVEL_PIN")
     pull_up = config.get("FLOW_PULL_UP", True)
     if isinstance(pull_up, str):
         if pull_up not in ("0", "1"):
@@ -89,8 +97,10 @@ def build_hardware_config(config):
         mode=config.get("HARDWARE_MODE", "real"),
         flow_pin=None if flow_pin in (None, "") else integer(flow_pin),
         flow_pull_up=pull_up,
-        pump_active_high=polarity("PUMP_ACTIVE_HIGH"),
-        valve_active_high=polarity("VALVE_ACTIVE_HIGH"),
+        pump_active_high=boolean("PUMP_ACTIVE_HIGH"),
+        valve_active_high=boolean("VALVE_ACTIVE_HIGH"),
+        valve_enabled=boolean("VALVE_ENABLED"),
+        water_level_pin=None if water_pin in (None, "") else integer(water_pin),
     )
 
 
@@ -107,6 +117,7 @@ class WateringHardware:
         self.valve = None
         self.sensors = []
         self.flow_input = None
+        self.water_level_input = None
         self._flow_lock = threading.Lock()
         self._flow_pulses = 0
         self._last_pulse = None
@@ -120,8 +131,11 @@ class WateringHardware:
                     "Biblioteka gpiozero jest niedostępna. Zainstaluj zależności obsługi sprzętu.")
             self.pump = OutputDevice(
                 config.pump_pin, active_high=config.pump_active_high, initial_value=False)
-            self.valve = OutputDevice(
-                config.valve_pin, active_high=config.valve_active_high, initial_value=False)
+            if config.valve_enabled:
+                self.valve = OutputDevice(
+                    config.valve_pin, active_high=config.valve_active_high, initial_value=False)
+            if config.water_level_pin is not None:
+                self.water_level_input = DigitalInputDevice(config.water_level_pin, pull_up=True)
             # Append individually so partially initialized sensors can be closed.
             for channel in config.moisture_channels:
                 self.sensors.append(MCP3008(channel=channel))
@@ -153,7 +167,7 @@ class WateringHardware:
 
     def status(self):
         pump_on = self._read_state(self.pump, self._pump_state)
-        valve_open = self._read_state(self.valve, self._valve_state)
+        valve_open = self._read_state(self.valve, self._valve_state) if self.config.valve_enabled else None
         return {
             "available": self.available,
             "simulated": self.simulated,
@@ -162,6 +176,8 @@ class WateringHardware:
             "error": self.error,
             "pump_on": pump_on,
             "valve_open": valve_open,
+            "valve_enabled": self.config.valve_enabled,
+            "water_level": self.water_level(),
             "moisture_channels": self.config.moisture_channels,
             "flow_configured": self.config.flow_pin is not None,
         }
@@ -186,7 +202,23 @@ class WateringHardware:
         self._set("pump", on)
 
     def set_valve(self, open_value: bool):
+        if not self.config.valve_enabled:
+            raise HardwareError("Zawór jest wyłączony w konfiguracji.")
         self._set("valve", open_value)
+
+    def water_level(self):
+        configured = self.config.water_level_pin is not None
+        present = None
+        if configured and not self.simulated and not self.closed and self.water_level_input is not None:
+            try:
+                value = self.water_level_input.value
+                if value in (0, 1):
+                    present = bool(value)  # pull_up=True: closed to GND is active.
+            except Exception:
+                log.exception("Nie udało się odczytać poziomu wody")
+        return {"configured": configured, "water_present": present,
+                "state": ("not_configured" if not configured else
+                          "unknown" if present is None else "ok" if present else "low_water")}
 
     def _record_pulse(self):
         # This callback never takes the controller lock or accesses SQLite.
@@ -202,7 +234,10 @@ class WateringHardware:
     def safe_off(self):
         """Attempt both outputs even if the first operation fails."""
         errors = []
-        for name, action in (("pump", self.set_pump), ("valve", self.set_valve)):
+        actions = [("pump", self.set_pump)]
+        if self.config.valve_enabled:
+            actions.append(("valve", self.set_valve))
+        for name, action in actions:
             try:
                 action(False)
             except Exception as exc:
@@ -230,9 +265,11 @@ class WateringHardware:
         components = []
         devices = [
             ("Pompa", "gpio_output", f"GPIO{self.config.pump_pin}", self.pump),
-            ("Zawór", "gpio_output",
-             f"GPIO{self.config.valve_pin}", self.valve),
         ]
+        if self.config.valve_enabled:
+            devices.append(("Zawór", "gpio_output", f"GPIO{self.config.valve_pin}", self.valve))
+        if self.config.water_level_pin is not None:
+            devices.append(("Poziom wody", "contact_input", f"GPIO{self.config.water_level_pin}", self.water_level_input))
         if self.config.flow_pin is not None:
             devices.append(("Przepływomierz", "pulse_input", f"GPIO{self.config.flow_pin}", self.flow_input))
         devices.extend(
@@ -268,7 +305,7 @@ class WateringHardware:
 
     def _close_devices(self):
         errors = []
-        for device in (self.pump, self.valve, self.flow_input, *self.sensors):
+        for device in (self.pump, self.valve, self.flow_input, self.water_level_input, *self.sensors):
             if device is not None:
                 try:
                     device.close()
@@ -277,6 +314,7 @@ class WateringHardware:
                     errors.append("Nie udało się zwolnić urządzenia GPIO.")
         self.pump = self.valve = None
         self.flow_input = None
+        self.water_level_input = None
         self.sensors = []
         self.available = False
         return errors

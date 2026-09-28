@@ -37,6 +37,7 @@ class Settings:
     portion_ml: float = 50
     flow_pulses_per_liter: float | None = None
     no_flow_timeout_seconds: int = 5
+    pump_ml_per_second: float | None = None
 
     def validate(self, channels, flow_configured):
         if type(self.enabled) is not bool:
@@ -71,6 +72,8 @@ class Settings:
         if self.flow_pulses_per_liter is not None and not number(self.flow_pulses_per_liter, 1, 1_000_000):
             raise ValueError(
                 "Liczba impulsów na litr musi być pusta lub wynosić od 1 do 1000000.")
+        if self.pump_ml_per_second is not None and not number(self.pump_ml_per_second, 0.000001, 1_000_000):
+            raise ValueError("Wydajność pompy musi być nieznana lub dodatnia, skończona (0,000001–1000000 ml/s).")
         if self.enabled:
             if not calibrated:
                 raise ValueError(

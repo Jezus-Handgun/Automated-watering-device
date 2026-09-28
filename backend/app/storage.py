@@ -34,29 +34,36 @@ class Store:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("BEGIN IMMEDIATE")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError(
                     "Schemat bazy danych jest nowszy niż ta wersja aplikacji.")
-            if version == 1:
+            if version == 2:
                 return
-            schema = Path(__file__).with_name("schema.sql").read_text()
-            for statement in schema.split(";"):
-                if statement.strip():
-                    db.execute(statement)
-            tables = {row[0] for row in db.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
-            # Keep the original tables intact and import their records once.
-            if "moisture_readings" in tables:
-                db.execute("""INSERT OR IGNORE INTO sensor_samples
-                    (channel, raw_value, created_at, legacy_id)
-                    SELECT channel, value, replace(created_at, ' ', 'T') || 'Z', id
-                    FROM moisture_readings""")
-            if "water_events" in tables:
-                db.execute("""INSERT OR IGNORE INTO watering_runs
-                    (source, mode, seconds, zone, status, created_at, legacy_id)
-                    SELECT 'legacy', 'time', seconds, zone, 'legacy',
-                    replace(created_at, ' ', 'T') || 'Z', id FROM water_events""")
-            db.execute("PRAGMA user_version=1")
+            if version == 0:
+                schema = Path(__file__).with_name("schema.sql").read_text()
+                for statement in schema.split(";"):
+                    if statement.strip():
+                        db.execute(statement)
+                tables = {row[0] for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                # Keep the original tables intact and import their records once.
+                if "moisture_readings" in tables:
+                    db.execute("""INSERT OR IGNORE INTO sensor_samples
+                        (channel, raw_value, created_at, legacy_id)
+                        SELECT channel, value, replace(created_at, ' ', 'T') || 'Z', id
+                        FROM moisture_readings""")
+                if "water_events" in tables:
+                    db.execute("""INSERT OR IGNORE INTO watering_runs
+                        (source, mode, seconds, zone, status, created_at, legacy_id)
+                        SELECT 'legacy', 'time', seconds, zone, 'legacy',
+                        replace(created_at, ' ', 'T') || 'Z', id FROM water_events""")
+                db.execute("PRAGMA user_version=1")
+            # New nullable fields deliberately leave pre-v2 history unknown.
+            db.execute("ALTER TABLE watering_runs ADD COLUMN pump_seconds REAL")
+            db.execute("ALTER TABLE watering_runs ADD COLUMN estimated_ml REAL")
+            db.execute("ALTER TABLE watering_runs ADD COLUMN pump_ml_per_second REAL")
+            db.execute("PRAGMA user_version=2")
+
 
     def settings(self, scope):
         with self.connection() as db:
@@ -105,11 +112,14 @@ class Store:
                 VALUES (?,?,?,?,'running',?,?)""", (source, mode, seconds, target_ml, simulated, now))
             return cursor.lastrowid
 
-    def finish_run(self, run_id, status, error, elapsed, pulses, delivered_ml):
+    def finish_run(self, run_id, status, error, elapsed, pulses, delivered_ml,
+                   pump_seconds=None, estimated_ml=None, pump_ml_per_second=None):
         with self.connection() as db:
             db.execute("""UPDATE watering_runs SET status=?, error=?, elapsed_seconds=?,
-                pulses=?, delivered_ml=?, finished_at=? WHERE id=? AND status='running'""",
-                       (status, error, elapsed, pulses, delivered_ml, utc_now(), run_id))
+                pulses=?, delivered_ml=?, pump_seconds=?, estimated_ml=?, pump_ml_per_second=?,
+                finished_at=? WHERE id=? AND status='running'""",
+                       (status, error, elapsed, pulses, delivered_ml, pump_seconds, estimated_ml,
+                        pump_ml_per_second, utc_now(), run_id))
 
     def run(self, run_id):
         with self.connection() as db:
