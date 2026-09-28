@@ -44,15 +44,22 @@ function render() {
   const available = state.online && hw.ready;
   const locked = !available || state.busy;
   const cycle = operation.mode === "watering";
+  const valveEnabled = hw.valve_enabled !== false;
+  const valveOff = !valveEnabled || hw.valve_open === false;
+  const lowWater = hw.water_level?.configured && hw.water_level.water_present !== true;
+  const remainingBudget = state.automation
+    ? Math.max(0, state.automation.daily_limit_seconds - state.automation.daily_used_seconds)
+    : Infinity;
+  const manualBudgetBlocked = !operation.active && remainingBudget < (operation.manual_timeout_seconds ?? 60);
   const volumeButton = document.getElementById("volumeBtn");
-  if (volumeButton) volumeButton.disabled = locked || operation.active || !state.flow?.configured || !state.flow?.calibrated || hw.pump_on !== false || hw.valve_open !== false;
+  if (volumeButton) volumeButton.disabled = locked || lowWater || operation.active || !state.flow?.configured || !state.flow?.calibrated || hw.pump_on !== false || !valveOff;
   waterButtons.forEach((button) => {
-    button.disabled = locked || operation.active || hw.pump_on !== false || hw.valve_open !== false;
+    button.disabled = locked || lowWater || operation.active || hw.pump_on !== false || !valveOff || Number(button.dataset.seconds) > remainingBudget;
   });
-  elements.pumpToggle.disabled = locked || cycle || (!hw.pump_on && hw.valve_open !== true);
-  elements.valveToggle.disabled = locked || cycle || hw.pump_on !== false;
+  elements.pumpToggle.disabled = locked || cycle || (!hw.pump_on && (lowWater || manualBudgetBlocked || (valveEnabled && hw.valve_open !== true)));
+  elements.valveToggle.disabled = !valveEnabled || locked || cycle || hw.pump_on !== false || (!hw.valve_open && (lowWater || manualBudgetBlocked));
   elements.pumpToggle.textContent = hw.pump_on ? "Zatrzymaj pompę" : "Uruchom pompę";
-  elements.valveToggle.textContent = hw.valve_open ? "Zamknij zawór" : "Otwórz zawór";
+  elements.valveToggle.textContent = !valveEnabled ? "Brak zaworu" : hw.valve_open ? "Zamknij zawór" : "Otwórz zawór";
   elements.healthPill.textContent = state.online ? "API: połączono" : "API: brak połączenia";
   elements.healthPill.classList.toggle("ok", state.online);
   if (!state.online) {
@@ -62,13 +69,18 @@ function render() {
   }
   const label = (value, yes, no) => value === true ? yes : value === false ? no : "nieznany";
   const mode = hw.simulated ? "SYMULACJA" : hw.ready ? "GPIO gotowe" : "niedostępne";
-  elements.hardwareState.textContent = `Pompa: ${label(hw.pump_on, "włączona", "wyłączona")} | Zawór: ${label(hw.valve_open, "otwarty", "zamknięty")} | ${mode}${hw.error ? ` | ${hw.error}` : ""}`;
+  elements.hardwareState.textContent = `Pompa: ${label(hw.pump_on, "włączona", "wyłączona")} | Zawór: ${valveEnabled ? label(hw.valve_open, "otwarty", "zamknięty") : "niezamontowany"} | ${mode}${hw.error ? ` | ${hw.error}` : ""}`;
+  elements.hardwareState.textContent += hw.water_level?.configured
+    ? ` | Woda: ${label(hw.water_level.water_present, "obecna", "brak (low_water)")}`
+    : " | Poziom wody: brak czujnika";
   if (operation.error || hw.error) {
     elements.waterNote.textContent = operation.error || hw.error;
+  } else if (lowWater) {
+    elements.waterNote.textContent = "Start zablokowany (low_water): brak wody lub nieznany stan pływaka. Sprawdź zbiornik i przewód.";
   } else if (operation.active) {
     elements.waterNote.textContent = `${cycle ? "Podlewanie" : "Sterowanie ręczne"}: pozostało ${operation.remaining_seconds} s${hw.simulated ? " (symulacja)" : ""}`;
   } else {
-    const messages = { completed: "Podlewanie zakończone.", cancelled: "Zatrzymano.", stopped: "Zatrzymano.", timeout: "Upłynął limit sterowania ręcznego. Wyłączono pompę i zawór.", failed: "Operacja nie powiodła się.", sensor_error: "Zatrzymano podlewanie: niepoprawny pomiar wilgotności." };
+    const messages = { low_water: "Zatrzymano podlewanie: brak potwierdzenia obecności wody (low_water).", completed: "Podlewanie zakończone.", cancelled: "Zatrzymano.", stopped: "Zatrzymano.", timeout: "Upłynął limit sterowania ręcznego. Wyłączono pompę i zawór.", failed: "Operacja nie powiodła się.", sensor_error: "Zatrzymano podlewanie: niepoprawny pomiar wilgotności." };
     elements.waterNote.textContent = messages[operation.last_result] || "Gotowość";
   }
 }
@@ -133,10 +145,10 @@ async function command(path, body) {
 }
 
 waterButtons.forEach((button) => {
-  button.addEventListener("click", () => command("/api/water", { seconds: Number(button.dataset.seconds), zone: 0 }));
+  button.addEventListener("click", () => { if (!button.disabled) return command("/api/water", { seconds: Number(button.dataset.seconds), zone: 0 }); });
 });
-elements.pumpToggle.addEventListener("click", () => command("/api/pump", { on: !state.hardware.pump_on }));
-elements.valveToggle.addEventListener("click", () => command("/api/valve", { open: !state.hardware.valve_open }));
+elements.pumpToggle.addEventListener("click", () => { if (!elements.pumpToggle.disabled) return command("/api/pump", { on: !state.hardware.pump_on }); });
+elements.valveToggle.addEventListener("click", () => { if (!elements.valveToggle.disabled) return command("/api/valve", { open: !state.hardware.valve_open }); });
 elements.stopBtn.addEventListener("click", () => command("/api/stop"));
 elements.refreshBtn.addEventListener("click", refreshMoisture);
 

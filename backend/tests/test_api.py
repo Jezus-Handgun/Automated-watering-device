@@ -65,6 +65,7 @@ def test_invalid_body(client, path, body):
 
 
 def test_async_start_conflicts_and_stop(client):
+    assert client.put("/api/settings", json={"daily_limit_seconds": 605}).status_code == 200
     response = client.post("/api/water", json={"seconds": 600, "zone": 0})
     assert response.status_code == 202
     assert response.get_json()["operation"]["active"] is True

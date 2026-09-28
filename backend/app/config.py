@@ -4,6 +4,8 @@ import os
 class Config:
     DATABASE_PATH = os.environ.get("DATABASE_PATH", "instance/watering.db")
     PUMP_PIN = os.environ.get("PUMP_PIN", "17")
+    VALVE_ENABLED = os.environ.get("VALVE_ENABLED", "1")
+    WATER_LEVEL_PIN = os.environ.get("WATER_LEVEL_PIN")
     VALVE_PIN = os.environ.get("VALVE_PIN", "27")
     PUMP_ACTIVE_HIGH = os.environ.get("PUMP_ACTIVE_HIGH", "1")
     VALVE_ACTIVE_HIGH = os.environ.get("VALVE_ACTIVE_HIGH", "1")

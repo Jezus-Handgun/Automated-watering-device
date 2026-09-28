@@ -69,7 +69,7 @@
           <label>Zakończ serię przy wilgotności ≥ (%) <input name="stop_percent" type="number" min="1" max="100" step="0.1" required></label>
           <label>Pomiar co (s) <input name="sample_interval_seconds" type="number" min="1" max="3600" required></label>
           <label>Liczba próbek filtra (nieparzysta) <input name="filter_samples" type="number" min="1" max="31" step="2" required></label>
-          <label>Sposób odmierzania porcji <select name="portion_mode"><option value="time">Czas</option><option value="volume">Objętość</option></select></label>
+          <label>Sposób odmierzania porcji <select name="portion_mode"><option value="time">Czas</option><option id="volumeModeOption" value="volume" disabled>Objętość zmierzona (przepływomierz)</option></select></label>
           <label>Czas porcji / limit dla objętości (s) <input name="portion_seconds" type="number" min="1" max="600" required></label>
           <label>Objętość porcji (ml) <input name="portion_ml" type="number" min="1" max="5000" step="0.1" required></label>
           <label>Przerwa na wsiąknięcie (s) <input name="soak_seconds" type="number" min="1" max="86400" required></label>
@@ -77,7 +77,7 @@
           <label class="check-label"><input name="enabled" type="checkbox"> Włącz automatykę po zapisaniu</label>
           <button type="submit" class="primary">Zapisz ustawienia</button>
         </form>
-        <p class="muted">Budżet rezerwuje pełny limit czasu każdego cyklu, także ręcznego i przerwanego. To limit dla automatyki; jawne sterowanie ręczne pozostaje dostępne.</p>
+        <p class="muted">Budżet rezerwuje pełny limit czasu każdego cyklu, także ręcznego i przerwanego. Limit obowiązuje we wszystkich trybach. Rezerwacja nie jest zwracana po przerwaniu. Doba zaczyna się o 00:00 UTC (01:00 lub 02:00 w Polsce); restart zachowuje rezerwacje, a przerwany cykl nie jest wznawiany.</p>
         <p id="settingsNote" role="status" aria-live="polite"></p>
       </section>
 
@@ -110,6 +110,18 @@
       </section>
 
       <section class="card wide">
+        <h2>Kalibracja pompy — szacunek objętości</h2>
+        <p id="pumpStatus" class="muted">Wydajność pompy nieznana.</p>
+        <p class="muted">Wykonaj cykl czasowy do jego poprawnego zakończenia, zbierz wodę do miarki i wpisz wynik. Cykl przerwany, ręczne przełączanie i dawka z przepływomierza nie służą do tej kalibracji. Szacunek zależy od wężyka, napięcia i wysokości podawania wody. Po zmianie instalacji powtórz kalibrację.</p>
+        <form id="pumpCalibrationForm" class="settings-grid">
+          <label>Numer zakończonego cyklu czasowego <input name="run_id" type="number" min="1" required></label>
+          <label>Zmierzona miarką objętość (ml) <input name="measured_ml" type="number" min="1" max="100000" step="0.1" required></label>
+          <button type="submit">Oblicz i zapisz wydajność</button>
+        </form>
+        <p id="pumpNote" role="status" aria-live="polite"></p>
+      </section>
+
+      <section class="card wide">
         <h2>Historia wilgotności i podlewania</h2>
         <form id="historyForm" class="settings-grid">
           <label>Kanał wykresu <input name="channel" type="number" min="0" max="7" value="0" required></label>
@@ -119,7 +131,7 @@
         <p id="sampleTime" class="muted"></p>
         <svg id="moistureChart" viewBox="0 0 900 260" role="img" aria-label="Wykres historii wilgotności"></svg>
         <p id="historyNote" role="status"></p>
-        <div class="table-scroll"><table><caption>Ostatnie cykle — czas lokalny</caption><thead><tr><th>ID</th><th>Rozpoczęcie</th><th>Źródło</th><th>Wynik</th><th>Czas (s)</th><th>Impulsy</th><th>Woda (ml)</th><th>Błąd</th></tr></thead><tbody id="runsBody"></tbody></table></div>
+        <div class="table-scroll"><table><caption>Ostatnie cykle — czas lokalny</caption><thead><tr><th>ID</th><th>Rozpoczęcie</th><th>Źródło</th><th>Wynik</th><th>Czas sesji (s)</th><th>Czas pompy (s)</th><th>Impulsy</th><th>Pomiar przepływomierza (ml)</th><th>Szacunek pompy (ml)</th><th>Błąd</th></tr></thead><tbody id="runsBody"></tbody></table></div>
         <button type="button" id="olderRuns">Starsze cykle</button>
         <h3>Zdarzenia i błędy</h3>
         <ul id="eventsList"></ul>
@@ -129,7 +141,7 @@
       <section class="card wide">
         <h2>Wskazówki</h2>
         <p class="muted">
-          Przed ręcznym uruchomieniem pompy otwórz zawór. Sterowanie ręczne ma limit czasu.
+          Jeśli instalacja ma zawór, przed ręcznym uruchomieniem pompy otwórz go. Sterowanie ręczne ma limit czasu.
           Przycisk „Zatrzymaj wszystko” przerywa sesję i wyłącza pompę oraz zawór.
           Stan GPIO nie potwierdza rzeczywistego przepływu wody.
         </p>

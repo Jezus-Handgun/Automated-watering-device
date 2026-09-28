@@ -15,6 +15,13 @@ class ControlConflict(RuntimeError):
     """Another command owns the actuators."""
 
 
+class LowWater(ControlConflict):
+    """Water is missing or its presence cannot be confirmed."""
+
+
+LOW_WATER_MESSAGE = "Brak potwierdzenia obecności wody. Sprawdź zbiornik, pływak i przewód."
+
+
 class WateringController:
     """Single process owner of actuators, sampling and automatic decisions."""
 
@@ -73,7 +80,30 @@ class WateringController:
         if self._closed or self._error or not self.hardware.ready:
             raise HardwareError(self._error or self.hardware.error or "Sprzęt jest niedostępny lub został wyłączony.")
 
+    def _ensure_water(self):
+        level = self.hardware.water_level()
+        if level["configured"] and level["water_present"] is not True:
+            raise LowWater(LOW_WATER_MESSAGE)
+
+    def _check_water_before_start(self):
+        try:
+            self._ensure_water()
+        except LowWater:
+            self._auto_reason = "low_water"
+            self._event("low_water", LOW_WATER_MESSAGE)
+            raise
+
+    def _pump_metrics(self, session):
+        if "final_pump_metrics" in session:
+            return session["final_pump_metrics"]
+        end = session.get("stopped_at", time.monotonic())
+        seconds = max(0, end - session["pump_started"]) if session["pump_started"] is not None else 0
+        factor = session["pump_ml_per_second"]
+        return seconds, round(seconds * factor, 3) if factor is not None else None
+
     def _volume(self, session):
+        if "final_volume" in session:
+            return session["final_volume"]
         flow = self.hardware.flow()
         pulses = max(0, flow["pulses"] - session["baseline_pulses"]) if flow["configured"] else None
         factor = session["pulses_per_liter"]
@@ -86,6 +116,7 @@ class WateringController:
         if session and "stopped_at" not in session:
             session["stopped_at"] = time.monotonic()
             session["final_volume"] = self._volume(session)
+            session["final_pump_metrics"] = self._pump_metrics(session)
             session["cancel"].set()
         return errors
 
@@ -102,6 +133,8 @@ class WateringController:
                 self._error = self._error or error
             self._session = None
         self._last_result = "failed" if self._error else result
+        if session and result == "low_water":
+            session["error"] = LOW_WATER_MESSAGE
         if session:
             self._soak_until = time.monotonic() + self.settings.soak_seconds
             self._soaking = True
@@ -113,12 +146,16 @@ class WateringController:
                 try:
                     pulses, ml = session["final_volume"]
                     self.store.finish_run(session["run_id"], self._last_result, self._error or session.get("error"),
-                                          max(0, session["stopped_at"] - session["started"]), pulses, ml)
+                                          max(0, session["stopped_at"] - session["started"]), pulses, ml,
+                                          *session["final_pump_metrics"], session["pump_ml_per_second"])
                 except Exception:
                     log.exception("Nie udało się zapisać wyniku podlewania")
                     self._error = "Zapis historii jest niedostępny. Wyłączono pompę i zawór."
                     self._last_result = "failed"
                     errors.append(self._error)
+        if session and result == "low_water":
+            self._auto_reason = "low_water"
+            self._event("low_water", LOW_WATER_MESSAGE)
         if self._error:
             self._auto_reason = "hardware_or_storage_error"
             self._event("control_error", self._error)
@@ -138,7 +175,7 @@ class WateringController:
             try:
                 run_id = self.store.begin_run(source, "volume" if target_ml is not None else mode,
                                               seconds, target_ml, self.hardware.simulated,
-                                              self.settings.daily_limit_seconds if source == "automatic" else None)
+                                              self.settings.daily_limit_seconds)
             except BudgetExceeded:
                 raise
             except Exception as exc:
@@ -150,7 +187,8 @@ class WateringController:
                          "target_ml": target_ml, "pump_started": None,
                          "baseline_pulses": self.hardware.flow()["pulses"],
                          "pulses_per_liter": self.settings.flow_pulses_per_liter,
-                         "generation": generation}
+                         "generation": generation,
+                         "pump_ml_per_second": self.settings.pump_ml_per_second}
         return self._session
 
     def _launch(self, session):
@@ -161,6 +199,9 @@ class WateringController:
         now = time.monotonic()
         if self.hardware.error:
             return "failed", self.hardware.error
+        level = self.hardware.water_level()
+        if level["configured"] and level["water_present"] is not True:
+            return "low_water", None
         flow = self.hardware.flow()
         pulses, ml = self._volume(session)
         if session["target_ml"] is not None and ml is not None and ml >= session["target_ml"]:
@@ -196,6 +237,7 @@ class WateringController:
 
     def _ensure_session_startable(self, session):
         self._ensure_ready()
+        self._ensure_water()
         if (session["generation"] != self._stop_generation or
                 session["cancel"].is_set() or time.monotonic() >= session["deadline"]):
             raise ControlConflict("Sesja została zatrzymana lub upłynął jej limit czasu.")
@@ -213,14 +255,20 @@ class WateringController:
                 raise ControlConflict("Inna sesja jest aktywna. Zatrzymaj ją przed rozpoczęciem podlewania.")
             if target_ml is not None and (not self.hardware.flow()["configured"] or not self.settings.flow_pulses_per_liter):
                 raise ControlConflict("Podlewanie według objętości wymaga skonfigurowanego i skalibrowanego przepływomierza.")
+            self._check_water_before_start()
             session = self._prepare("watering", seconds, source, target_ml)
             try:
                 with self._safety_lock:
                     self._ensure_session_startable(session)
-                    self.hardware.set_valve(True)
+                    if self.hardware.config.valve_enabled:
+                        self.hardware.set_valve(True)
                     self.hardware.set_pump(True)
                     session["pump_started"] = time.monotonic()
                     self._launch(session)
+            except LowWater:
+                if self._session:
+                    self._finish("low_water")
+                raise
             except ControlConflict:
                 self._finish("cancelled")
                 raise
@@ -229,17 +277,20 @@ class WateringController:
             return self._operation_status()
 
     def set_manual(self, device, on):
+        if device == "valve" and not self.hardware.config.valve_enabled:
+            raise ControlConflict("Zawór jest wyłączony w konfiguracji.")
         with self._lock:
             self._ensure_ready()
             if self._session and self._session["mode"] == "watering":
                 raise ControlConflict("Podlewanie trwa. Użyj przycisku „Zatrzymaj wszystko”, aby je przerwać.")
             state = self.hardware.status()
-            if device == "pump" and on and state["valve_open"] is not True:
+            if device == "pump" and on and self.hardware.config.valve_enabled and state["valve_open"] is not True:
                 raise ControlConflict("Otwórz zawór przed uruchomieniem pompy.")
             if device == "valve" and not on and state["pump_on"] is not False:
                 raise ControlConflict("Zatrzymaj pompę przed zamknięciem zaworu lub użyj przycisku „Zatrzymaj wszystko”.")
             try:
                 if on:
+                    self._check_water_before_start()
                     new_session = self._session is None
                     session = self._session or self._prepare("manual", self.manual_timeout, "manual")
                     action = self.hardware.set_pump if device == "pump" else self.hardware.set_valve
@@ -254,8 +305,14 @@ class WateringController:
                     errors = self._finish("stopped")
                     if errors:
                         raise HardwareError(self._error)
+            except LowWater:
+                if self._session:
+                    self._finish("low_water")
+                raise
             except ControlConflict:
                 self._finish("cancelled")
+                raise
+            except BudgetExceeded:
                 raise
             except Exception as exc:
                 self._fail(exc)
@@ -291,9 +348,11 @@ class WateringController:
                 raise HardwareError(self._error)
             return self._operation_status()
 
-    def update_settings(self, patch):
+    def update_settings(self, patch, *, pump_calibration=False):
         if not isinstance(patch, dict) or not patch or set(patch) - set(self.settings.json()):
             raise ValueError("Podaj obsługiwane pola ustawień w niepustym obiekcie JSON.")
+        if patch.get("pump_ml_per_second") is not None and not pump_calibration:
+            raise ValueError("Wydajność pompy ustaw przez kalibrację zakończonego cyklu.")
         with self._lock:
             if self._session and patch != {"enabled": False}:
                 raise ControlConflict("Zatrzymaj podlewanie przed zmianą ustawień lub kalibracji.")
@@ -315,6 +374,21 @@ class WateringController:
             self._service_wake.set()
             return self.settings.json()
 
+    def calibrate_pump(self, run_id, measured_ml):
+        if type(run_id) is not int or run_id < 1 or not number(measured_ml, 1, 100000):
+            raise ValueError("Podaj dodatni numer cyklu i zmierzoną objętość od 1 do 100000 ml.")
+        with self._lock:
+            if self._session:
+                raise ControlConflict("Zatrzymaj podlewanie przed kalibracją pompy.")
+            run = self.store.run(run_id) if self.store else None
+            if (not run or run["simulated"] != self.hardware.simulated or
+                    run["status"] != "completed" or run["mode"] not in ("watering", "time") or
+                    run["target_ml"] is not None or run["error"] or
+                    not number(run["pump_seconds"], 0.000001, 86400)):
+                raise ValueError("Wybierz poprawnie zakończony cykl czasowy z zapisanym czasem pompy w bieżącym trybie sprzętu.")
+            return self.update_settings({"pump_ml_per_second": measured_ml / run["pump_seconds"]},
+                                        pump_calibration=True)
+
     def calibrate_flow(self, run_id, measured_ml):
         if type(run_id) is not int or run_id < 1 or not number(measured_ml, 1, 100000):
             raise ValueError("Podaj dodatni numer cyklu i zmierzoną objętość od 1 do 100000 ml.")
@@ -326,14 +400,18 @@ class WateringController:
 
     def _operation_status(self):
         session = self._session
-        pulses, ml = self._volume(session) if session else (None, None)
+        with self._safety_lock:
+            pulses, ml = self._volume(session) if session else (None, None)
+            pump_seconds, estimated_ml = self._pump_metrics(session) if session else (None, None)
         return {"active": session is not None, "mode": session["mode"] if session else "idle",
                 "source": session["source"] if session else None,
                 "remaining_seconds": max(0, math.ceil(session["deadline"] - time.monotonic())) if session else 0,
                 "seconds": session["seconds"] if session else None, "zone": 0,
+                "manual_timeout_seconds": self.manual_timeout,
                 "run_id": session["run_id"] if session else None,
                 "target_ml": session["target_ml"] if session else None,
                 "delivered_ml": ml, "pulses": pulses,
+                "pump_seconds": pump_seconds, "estimated_ml": estimated_ml,
                 "last_result": self._last_result, "error": self._error}
 
     def status(self):
@@ -351,6 +429,7 @@ class WateringController:
                                    "daily_used_seconds": self.store.daily_used(self.hardware.simulated) if self.store else 0,
                                    "daily_limit_seconds": self.settings.daily_limit_seconds,
                                    "sampling_active": bool(self._service_thread and self._service_thread.is_alive())},
+                    "pump": {"ml_per_second": self.settings.pump_ml_per_second},
                     "flow": {"configured": self.hardware.flow()["configured"],
                              "calibrated": self.settings.flow_pulses_per_liter is not None,
                              "pulses_per_liter": self.settings.flow_pulses_per_liter}}
@@ -389,6 +468,12 @@ class WateringController:
     def _decide(self):
         if not self.settings.enabled:
             self._auto_reason = "disabled"
+            return
+        level = self.hardware.water_level()
+        if level["configured"] and level["water_present"] is not True:
+            self._auto_reason = "low_water"
+            if self._session and self._session["source"] == "automatic":
+                self._finish("low_water")
             return
         selected = next((s for s in self._latest if s["channel"] == self.settings.channel), None)
         if not selected or selected["moisture_percent"] is None or selected["error"]:

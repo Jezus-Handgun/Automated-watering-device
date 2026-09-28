@@ -5,14 +5,17 @@ services:
       - "8080:5000"
     volumes:
       - ./backend/instance:/data
+      - ./backend/instance:/app/backend/instance
     environment:
-      DATABASE_PATH: /data/watering.db
+      DATABASE_PATH: ${DATABASE_PATH:-/data/watering.db}
       HARDWARE_MODE: ${HARDWARE_MODE:-real}
-      PUMP_PIN: "17"
-      VALVE_PIN: "27"
+      PUMP_PIN: ${PUMP_PIN:-17}
+      VALVE_PIN: ${VALVE_PIN:-27}
+      VALVE_ENABLED: ${VALVE_ENABLED:-1}
+      WATER_LEVEL_PIN: ${WATER_LEVEL_PIN:-}
       PUMP_ACTIVE_HIGH: ${PUMP_ACTIVE_HIGH:-1}
       VALVE_ACTIVE_HIGH: ${VALVE_ACTIVE_HIGH:-1}
-      MOISTURE_CHANNELS: "0,1,2"
-      MANUAL_TIMEOUT_SECONDS: "60"
+      MOISTURE_CHANNELS: ${MOISTURE_CHANNELS-0,1,2}
+      MANUAL_TIMEOUT_SECONDS: ${MANUAL_TIMEOUT_SECONDS:-60}
       FLOW_PIN: ${FLOW_PIN:-}
       FLOW_PULL_UP: ${FLOW_PULL_UP:-1}

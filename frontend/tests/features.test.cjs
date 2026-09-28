@@ -35,6 +35,7 @@ async function setup() {
   form("automationForm", Object.keys(defaults).filter((key) => !["flow_pulses_per_liter", "no_flow_timeout_seconds"].includes(key)));
   form("flowForm", ["flow_pulses_per_liter", "no_flow_timeout_seconds"]);
   form("flowCalibrationForm", ["run_id", "measured_ml"]);
+  form("pumpCalibrationForm", ["run_id", "measured_ml"]);
   form("volumeForm", ["seconds", "volume_ml"]);
   form("historyForm", ["channel", "hours"]);
   get("historyForm").elements.hours.value = "24";
@@ -133,7 +134,49 @@ test("history translates stored English statuses and messages without changing r
   assert.equal(cells[2].textContent, "ręczne");
   assert.equal(cells[3].textContent, "błąd");
   assert.equal(cells[4].textContent, "1,5");
-  assert.match(cells[7].textContent, /Nie wykryto przepływu/);
+  assert.match(cells[9].textContent, /Nie wykryto przepływu/);
   app.run(`appendEvents([{created_at:'2026-09-23T10:00:00Z', kind:'sensor_error', message:'CH0: Missing or invalid sensor reading.'}])`);
   assert.match(app.get("eventsList").children[0].textContent, /błąd czujnika: Kanał 0: Brak odczytu/);
+});
+
+test("pump calibration posts numeric run and measured volume", async () => {
+  const app = await setup();
+  const form = app.get("pumpCalibrationForm");
+  form.elements.run_id.value = "7";
+  form.elements.measured_ml.value = "20";
+  app.intercept((path) => path === "/api/pump/calibrate" ? {...defaults, pump_ml_per_second:2} : null);
+  await app.run('saveForm(feature.pumpCalibrationForm, feature.pumpNote, "/api/pump/calibrate", "POST")');
+  const request = app.calls.find(call => call.path === "/api/pump/calibrate");
+  assert.deepEqual(JSON.parse(request.options.body), {run_id:7, measured_ml:20});
+  assert.match(app.get("pumpNote").textContent, /Zapisano/);
+});
+
+test("history separates measured and estimated volumes and labels low water", async () => {
+  const app = await setup();
+  app.run(`appendRuns([{id:1, created_at:'2026-09-28T10:00:00Z', source:'manual', status:'low_water', elapsed_seconds:3, pump_seconds:2, delivered_ml:null, estimated_ml:5, error:null}])`);
+  const cells = app.get("runsBody").children[0].children;
+  assert.match(cells[3].textContent, /low_water/);
+  assert.equal(cells[5].textContent, "2");
+  assert.equal(cells[7].textContent, "—");
+  assert.equal(cells[8].textContent, "5");
+});
+
+test("uncalibrated pump has no invented estimate, volume mode disabled, UTC budget explicit", async () => {
+  const app = await setup();
+  assert.match(app.get("pumpStatus").textContent, /nieznana/);
+  assert.equal(app.get("volumeModeOption").disabled, true);
+  assert.match(app.get("automationStatus").textContent, /UTC.*wszystkie tryby/);
+});
+
+test("live progress separates estimate and measurement and locks calibration while running", async () => {
+  const app = await setup();
+  app.intercept(path => path === "/api/status" ? {
+    hardware: {simulated:true}, automation: {reason:"watering"},
+    flow: {configured:false, calibrated:false}, pump: {ml_per_second:2},
+    operation: {active:true, delivered_ml:null, estimated_ml:4, pump_seconds:2, pulses:null}
+  } : null);
+  await app.run("updateFeatures()");
+  assert.match(app.get("volumeProgress").textContent, /Pomiar przepływomierza: brak ml.*Szacunek pompy: 4 ml/);
+  assert.match(app.get("pumpStatus").textContent, /nie pomiar/);
+  assert.equal(app.get("pumpCalibrationForm").querySelector().disabled, true);
 });

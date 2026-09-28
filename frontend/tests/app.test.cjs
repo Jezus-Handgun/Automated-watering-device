@@ -121,3 +121,51 @@ test("sensor labels use actual configured channels", async () => {
   await app.run("refreshMoisture()");
   assert.equal(app.elements.moistureReadings.textContent, "Kanał 2: 0,250 | Kanał 5: brak danych");
 });
+
+test("pump-only permits pump and disables absent valve", async () => {
+  const app = await setup();
+  const status = idle();
+  status.hardware.valve_enabled = false;
+  status.hardware.valve_open = null;
+  app.setStatus(status);
+  await app.run("refreshStatus()");
+  assert.equal(app.elements.pumpToggle.disabled, false);
+  assert.equal(app.elements.valveToggle.disabled, true);
+  assert.equal(app.buttons[0].disabled, false);
+  assert.match(app.elements.hardwareState.textContent, /niezamontowany/);
+  await app.elements.valveToggle.handlers.click();
+  assert.equal(app.calls.filter(({url}) => url === "/api/valve").length, 0);
+});
+
+for (const present of [false, null]) {
+  test(`water ${present} blocks starts while STOP remains available`, async () => {
+    const app = await setup();
+    const status = idle();
+    status.hardware.valve_enabled = false;
+    status.hardware.water_level = {configured: true, water_present: present};
+    app.setStatus(status);
+    await app.run("refreshStatus()");
+    assert.equal(app.elements.pumpToggle.disabled, true);
+    assert(app.buttons.every(button => button.disabled));
+    assert.equal(app.elements.stopBtn.disabled, false);
+    assert.match(app.elements.waterNote.textContent, /low_water/);
+  });
+}
+
+test("daily budget disables unaffordable starts but permits manual stop", async () => {
+  const app = await setup();
+  const status = idle();
+  status.hardware.valve_enabled = false;
+  status.automation = {daily_limit_seconds: 120, daily_used_seconds: 110};
+  status.operation.manual_timeout_seconds = 60;
+  app.setStatus(status);
+  await app.run("refreshStatus()");
+  assert.equal(app.buttons[0].disabled, false);
+  assert.equal(app.buttons[1].disabled, true);
+  assert.equal(app.elements.pumpToggle.disabled, true);
+  status.operation = {active:true, mode:"manual", manual_timeout_seconds:60};
+  status.hardware.pump_on = true;
+  app.setStatus(status);
+  await app.run("refreshStatus()");
+  assert.equal(app.elements.pumpToggle.disabled, false);
+});
