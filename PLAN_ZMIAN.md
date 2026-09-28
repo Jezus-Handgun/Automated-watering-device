@@ -242,3 +242,26 @@ Użytkownik zatwierdził tłumaczenie tekstów widocznych w aplikacji.
   `git diff --check` bez błędów. Nie używano fizycznego GPIO.
 - Po aktualizacji trzeba ponownie uruchomić backend i odświeżyć stronę
   z pominięciem pamięci podręcznej (Ctrl+Shift+R).
+
+
+### 2026-09-28 — poprawki P0 z TO_DO.md
+
+Nowe polecenie użytkownika zatwierdziło rozpoczęcie prac nad kodem wskazanym
+w `TO_DO.md`. Wykonano pierwszy etap niezależny od wyboru elektroniki:
+
+- KOD-01: baza `071de46a23953be6f4b01ebfed80e1194f3a3ce3`; zachowano pracę użytkownika.
+- KOD-02: niezależna polaryzacja `PUMP_ACTIVE_HIGH`/`VALVE_ACTIVE_HIGH` (0/1,
+  domyślnie 1), walidacja, Compose i testy poziomów GPIO na MockFactory.
+  Kod ukończony; ELE-02 pozostaje do weryfikacji fizycznej.
+- KOD-03: osobna blokada wyjść bez I/O bazy; STOP, zamykanie i monitor czasu,
+  celu objętości oraz braku przepływu wyłączają wyjścia bez czekania na blokadę
+  SQLite. Rezerwacja budżetu nadal przed ON; STOP unieważnia oczekujący start.
+  Historia używa czasu i impulsów przechwyconych przy wyłączeniu.
+- KOD-17: 22 nowe regresje, w tym blokada rzeczywistej tymczasowej bazy SQLite.
+  Backend: **166 zaliczonych, 3 sprzętowe pominięte**; frontend: **13 zaliczonych**.
+  `git diff --check` i `docker compose config --quiet` poprawne.
+- README oraz `TO_DO.md` zaktualizowane; etap dopasowania całego kodu i CAD nadal
+  otwarty. Nie wybrano pinów/modułów, wariantu bez zaworu ani metody estymacji.
+- Odpowiedzi HTTP i finalizacja historii mogą czekać na bazę już po OFF.
+  Nadzór 50 ms nie zapewnia gwarancji czasu rzeczywistego. Bez fizycznego GPIO,
+  budowania obrazu, commitu i publikacji zmian.

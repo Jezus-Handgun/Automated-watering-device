@@ -26,6 +26,8 @@ class HardwareConfig:
     mode: str = "real"
     flow_pin: int | None = None
     flow_pull_up: bool = True
+    pump_active_high: bool = True
+    valve_active_high: bool = True
 
     def __post_init__(self):
         if self.mode not in ("real", "simulation"):
@@ -36,6 +38,8 @@ class HardwareConfig:
                 "Numery pinów BCM muszą być liczbami całkowitymi od 0 do 27.")
         if len(set(pins)) != len(pins):
             raise ValueError("Pompa, zawór i przepływomierz muszą używać różnych pinów GPIO.")
+        if any(type(value) is not bool for value in (self.pump_active_high, self.valve_active_high)):
+            raise ValueError("Polaryzacja pompy i zaworu musi mieć wartość logiczną.")
         if type(self.flow_pull_up) is not bool:
             raise ValueError("FLOW_PULL_UP musi mieć wartość logiczną.")
         if any(type(ch) is not int or not 0 <= ch <= 7 for ch in self.moisture_channels):
@@ -55,6 +59,14 @@ def build_hardware_config(config):
             return int(value)
         raise ValueError(
             "Numery pinów i kanałów w konfiguracji sprzętu muszą być całkowite.")
+
+    def polarity(name):
+        value = config.get(name, True)
+        if isinstance(value, str) and value in ("0", "1"):
+            return value == "1"
+        if type(value) is not bool:
+            raise ValueError(f"{name} musi mieć wartość 0 albo 1.")
+        return value
 
     raw = config.get("MOISTURE_CHANNELS", "0,1,2")
     if isinstance(raw, str):
@@ -77,6 +89,8 @@ def build_hardware_config(config):
         mode=config.get("HARDWARE_MODE", "real"),
         flow_pin=None if flow_pin in (None, "") else integer(flow_pin),
         flow_pull_up=pull_up,
+        pump_active_high=polarity("PUMP_ACTIVE_HIGH"),
+        valve_active_high=polarity("VALVE_ACTIVE_HIGH"),
     )
 
 
@@ -105,9 +119,9 @@ class WateringHardware:
                 raise HardwareError(
                     "Biblioteka gpiozero jest niedostępna. Zainstaluj zależności obsługi sprzętu.")
             self.pump = OutputDevice(
-                config.pump_pin, active_high=True, initial_value=False)
+                config.pump_pin, active_high=config.pump_active_high, initial_value=False)
             self.valve = OutputDevice(
-                config.valve_pin, active_high=True, initial_value=False)
+                config.valve_pin, active_high=config.valve_active_high, initial_value=False)
             # Append individually so partially initialized sensors can be closed.
             for channel in config.moisture_channels:
                 self.sensors.append(MCP3008(channel=channel))

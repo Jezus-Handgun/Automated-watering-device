@@ -23,6 +23,10 @@ class WateringController:
             raise ValueError("MANUAL_TIMEOUT_SECONDS musi być liczbą całkowitą od 1 do 600.")
         self.hardware, self.manual_timeout, self.store = hardware, manual_timeout, store
         self._lock = threading.RLock()
+        # Never perform storage I/O while holding this actuator gate.
+        self._safety_lock = threading.RLock()
+        self._stop_generation = 0
+        self._pending_stops = 0
         self._session = None
         self._last_result = self._error = None
         self._closed = False
@@ -64,6 +68,8 @@ class WateringController:
                 self._error = self._error or "Zapis historii jest niedostępny."
 
     def _ensure_ready(self):
+        if self._pending_stops:
+            raise ControlConflict("Trwa zatrzymywanie urządzenia.")
         if self._closed or self._error or not self.hardware.ready:
             raise HardwareError(self._error or self.hardware.error or "Sprzęt jest niedostępny lub został wyłączony.")
 
@@ -74,16 +80,27 @@ class WateringController:
         ml = round(1000 * pulses / factor, 3) if pulses is not None and factor else None
         return pulses, ml
 
-    def _finish(self, result):
-        session = self._session
-        if session:
-            session["cancel"].set()
+    def _cutoff(self, session):
+        """Called under the safety gate, without SQLite or the main lock."""
         errors = self.hardware.safe_off()
-        if errors:
-            self._error = "; ".join(errors)
-        elif self.hardware.error:
-            self._error = self._error or self.hardware.error
-        self._session = None
+        if session and "stopped_at" not in session:
+            session["stopped_at"] = time.monotonic()
+            session["final_volume"] = self._volume(session)
+            session["cancel"].set()
+        return errors
+
+    def _finish(self, result):
+        with self._safety_lock:
+            session = self._session
+            errors = self._cutoff(session)
+            if errors:
+                self._error = "; ".join(errors)
+            elif self.hardware.error:
+                self._error = self._error or self.hardware.error
+            if session and session.get("end_reason"):
+                result, error = session["end_reason"]
+                self._error = self._error or error
+            self._session = None
         self._last_result = "failed" if self._error else result
         if session:
             self._soak_until = time.monotonic() + self.settings.soak_seconds
@@ -94,9 +111,9 @@ class WateringController:
                 self._auto_reason = "waiting_for_valid_samples"
             if self.store and session["run_id"] is not None:
                 try:
-                    pulses, ml = self._volume(session)
+                    pulses, ml = session["final_volume"]
                     self.store.finish_run(session["run_id"], self._last_result, self._error or session.get("error"),
-                                          max(0, time.monotonic() - session["started"]), pulses, ml)
+                                          max(0, session["stopped_at"] - session["started"]), pulses, ml)
                 except Exception:
                     log.exception("Nie udało się zapisać wyniku podlewania")
                     self._error = "Zapis historii jest niedostępny. Wyłączono pompę i zawór."
@@ -115,6 +132,7 @@ class WateringController:
 
     def _prepare(self, mode, seconds, source, target_ml=None):
         # Persist the reservation before energizing any actuator.
+        generation = self._stop_generation
         run_id = None
         if self.store:
             try:
@@ -131,43 +149,56 @@ class WateringController:
                          "seconds": seconds, "cancel": threading.Event(), "run_id": run_id,
                          "target_ml": target_ml, "pump_started": None,
                          "baseline_pulses": self.hardware.flow()["pulses"],
-                         "pulses_per_liter": self.settings.flow_pulses_per_liter}
+                         "pulses_per_liter": self.settings.flow_pulses_per_liter,
+                         "generation": generation}
         return self._session
 
     def _launch(self, session):
         threading.Thread(target=self._wait_for_end, args=(session,),
                          name="watering-monitor", daemon=True).start()
 
-    def _check_session(self, session):
-        if self._session is not session:
-            return
+    def _end_reason(self, session):
         now = time.monotonic()
         if self.hardware.error:
-            self._error = self.hardware.error
-            self._finish("failed")
-            return
+            return "failed", self.hardware.error
         flow = self.hardware.flow()
         pulses, ml = self._volume(session)
         if session["target_ml"] is not None and ml is not None and ml >= session["target_ml"]:
-            self._finish("completed")
-            return
+            return "completed", None
         if flow["configured"] and session["pump_started"] is not None:
             last = max(session["pump_started"], flow["last_pulse"] or session["pump_started"])
             if now - last >= self.settings.no_flow_timeout_seconds or (now >= session["deadline"] and pulses == 0):
-                self._error = "Nie wykryto przepływu podczas pracy pompy."
-                self._finish("failed")
-                return
+                return "failed", "Nie wykryto przepływu podczas pracy pompy."
         if now >= session["deadline"]:
             if session["target_ml"] is not None:
-                self._error = "Nie osiągnięto zadanej objętości w wyznaczonym czasie."
-            self._finish("completed" if session["mode"] == "watering" else "timeout")
+                return "failed", "Nie osiągnięto zadanej objętości w wyznaczonym czasie."
+            return ("completed" if session["mode"] == "watering" else "timeout"), None
+        return None
+
+    def _check_session(self, session):
+        # The main lock may be held by a blocked database writer.
+        with self._safety_lock:
+            if self._session is not session or session["cancel"].is_set():
+                return
+            reason = self._end_reason(session)
+            if reason is None:
+                return
+            session["end_reason"] = reason
+            self._cutoff(session)
+        # Outputs are already OFF; history can wait for storage independently.
+        with self._lock:
+            if self._session is session:
+                self._finish(reason[0])
 
     def _wait_for_end(self, session):
         while not session["cancel"].wait(0.05):
-            with self._lock:
-                if self._session is not session:
-                    return
-                self._check_session(session)
+            self._check_session(session)
+
+    def _ensure_session_startable(self, session):
+        self._ensure_ready()
+        if (session["generation"] != self._stop_generation or
+                session["cancel"].is_set() or time.monotonic() >= session["deadline"]):
+            raise ControlConflict("Sesja została zatrzymana lub upłynął jej limit czasu.")
 
     def start(self, seconds, zone=0, target_ml=None, source="manual"):
         if type(seconds) is not int or not 1 <= seconds <= 600:
@@ -184,10 +215,15 @@ class WateringController:
                 raise ControlConflict("Podlewanie według objętości wymaga skonfigurowanego i skalibrowanego przepływomierza.")
             session = self._prepare("watering", seconds, source, target_ml)
             try:
-                self.hardware.set_valve(True)
-                self.hardware.set_pump(True)
-                session["pump_started"] = time.monotonic()
-                self._launch(session)
+                with self._safety_lock:
+                    self._ensure_session_startable(session)
+                    self.hardware.set_valve(True)
+                    self.hardware.set_pump(True)
+                    session["pump_started"] = time.monotonic()
+                    self._launch(session)
+            except ControlConflict:
+                self._finish("cancelled")
+                raise
             except Exception as exc:
                 self._fail(exc)
             return self._operation_status()
@@ -207,19 +243,38 @@ class WateringController:
                     new_session = self._session is None
                     session = self._session or self._prepare("manual", self.manual_timeout, "manual")
                     action = self.hardware.set_pump if device == "pump" else self.hardware.set_valve
-                    action(True)
-                    if device == "pump" and session["pump_started"] is None:
-                        session["pump_started"] = time.monotonic()
-                    if new_session:
-                        self._launch(session)
+                    with self._safety_lock:
+                        self._ensure_session_startable(session)
+                        action(True)
+                        if device == "pump" and session["pump_started"] is None:
+                            session["pump_started"] = time.monotonic()
+                        if new_session:
+                            self._launch(session)
                 else:
                     errors = self._finish("stopped")
                     if errors:
                         raise HardwareError(self._error)
+            except ControlConflict:
+                self._finish("cancelled")
+                raise
             except Exception as exc:
                 self._fail(exc)
 
+    def _request_stop(self):
+        with self._safety_lock:
+            self._pending_stops += 1
+            self._stop_generation += 1
+            self._cutoff(self._session)
+
     def stop(self):
+        self._request_stop()
+        try:
+            return self._stop()
+        finally:
+            with self._safety_lock:
+                self._pending_stops -= 1
+
+    def _stop(self):
         with self._lock:
             # Disable automation in memory before any I/O, so it cannot restart.
             self.settings.enabled = False
@@ -398,6 +453,14 @@ class WateringController:
             return self.hardware.probe()
 
     def close(self):
+        self._request_stop()
+        try:
+            self._close()
+        finally:
+            with self._safety_lock:
+                self._pending_stops -= 1
+
+    def _close(self):
         with self._lock:
             if self._closed:
                 return

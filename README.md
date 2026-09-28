@@ -116,6 +116,14 @@ pump. Stopping the pump also closes the valve. Manual output control expires aft
 `MANUAL_TIMEOUT_SECONDS` (default 60), counted from opening the valve; repeated ON
 commands do not extend the deadline.
 
+STOP, shutdown, and the 50 ms session monitor switch outputs off through a
+separate actuator lock, without waiting for SQLite or the controller's main lock.
+This also covers volume completion and missing-flow detection. History writes and
+HTTP responses can still wait for the database after outputs are off. A STOP
+received while a start is waiting for its budget reservation cancels that start.
+Elapsed time and pulse totals are captured at cutoff, before delayed persistence.
+This is software supervision, not a hard real-time guarantee.
+
 Safety cleanup cannot handle SIGKILL, power loss, a hung process or a physical
 relay failure. GPIO/ADC diagnostics verify software access, not actual water flow.
 
@@ -152,6 +160,8 @@ final result cannot be saved, startup recovery marks it interrupted.
 | `HARDWARE_MODE`          | `real`                 | `real` or `simulation`                                            |
 | `PUMP_PIN`               | `17`                   | Pump BCM pin                                                      |
 | `VALVE_PIN`              | `27`                   | Valve BCM pin                                                     |
+| `PUMP_ACTIVE_HIGH`      | `1`                    | `1`: active high; `0`: active low pump output                       |
+| `VALVE_ACTIVE_HIGH`     | `1`                    | `1`: active high; `0`: active low valve output                      |
 | `MOISTURE_CHANNELS`      | `0,1,2`                | Unique MCP3008 channels 0–7; use `0` for one sensor               |
 | `MANUAL_TIMEOUT_SECONDS` | `60`                   | Manual session timeout, 1–600 seconds                             |
 | `FLOW_PIN`               | unset                  | Optional pulse-input BCM pin                                      |
@@ -159,8 +169,9 @@ final result cannot be saved, startup recovery marks it interrupted.
 | `DATABASE_PATH`          | `instance/watering.db` | SQLite path (relative paths use Flask's instance directory)       |
 
 Pins must be unique, in 0–27, and avoid SPI pins 7–11 when ADC channels are enabled.
-Pump/valve outputs currently use `active_high=True`; configurable relay polarity
-is a separate planned improvement. Automation settings, thresholds, time limits
+Pump and valve polarity are configured independently. Both initialize logically
+OFF and `safe_off()` respects their polarity. Select polarity from the actual
+driver documentation and verify physical OFF during boot/reset separately. Automation settings, thresholds, time limits
 and calibration are saved through the panel/API in SQLite, not environment vars.
 
 ## API
