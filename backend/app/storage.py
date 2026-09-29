@@ -34,10 +34,10 @@ class Store:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("BEGIN IMMEDIATE")
             version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise RuntimeError(
                     "Schemat bazy danych jest nowszy niż ta wersja aplikacji.")
-            if version == 2:
+            if version == 3:
                 return
             if version == 0:
                 schema = Path(__file__).with_name("schema.sql").read_text()
@@ -58,11 +58,26 @@ class Store:
                         SELECT 'legacy', 'time', seconds, zone, 'legacy',
                         replace(created_at, ' ', 'T') || 'Z', id FROM water_events""")
                 db.execute("PRAGMA user_version=1")
-            # New nullable fields deliberately leave pre-v2 history unknown.
-            db.execute("ALTER TABLE watering_runs ADD COLUMN pump_seconds REAL")
-            db.execute("ALTER TABLE watering_runs ADD COLUMN estimated_ml REAL")
-            db.execute("ALTER TABLE watering_runs ADD COLUMN pump_ml_per_second REAL")
-            db.execute("PRAGMA user_version=2")
+            if version < 2:
+                # No pump-time measurements existed in v1; leave them unknown.
+                db.execute("ALTER TABLE watering_runs ADD COLUMN pump_seconds REAL")
+                db.execute("ALTER TABLE watering_runs ADD COLUMN estimated_ml REAL")
+                db.execute("ALTER TABLE watering_runs ADD COLUMN pump_ml_per_second REAL")
+            # Two historical v0.3 variants used version 2 with different names.
+            # Inspect the actual columns before claiming the canonical v3 schema.
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(watering_runs)")}
+            if not {"pump_seconds", "pump_elapsed_seconds"} & columns:
+                raise RuntimeError("Nieznany schemat czasu pracy pompy. Zachowano bazę bez zmian.")
+            if "pump_seconds" not in columns:
+                db.execute("ALTER TABLE watering_runs ADD COLUMN pump_seconds REAL")
+            if "pump_elapsed_seconds" in columns:
+                # Preserve the old column as evidence; existing canonical values win.
+                db.execute("""UPDATE watering_runs SET pump_seconds=pump_elapsed_seconds
+                    WHERE pump_seconds IS NULL AND pump_elapsed_seconds IS NOT NULL""")
+            for name in ("estimated_ml", "pump_ml_per_second"):
+                if name not in columns:
+                    db.execute(f"ALTER TABLE watering_runs ADD COLUMN {name} REAL")
+            db.execute("PRAGMA user_version=3")
 
 
     def settings(self, scope):

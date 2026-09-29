@@ -61,7 +61,7 @@ def test_legacy_migration_preserves_data_and_is_idempotent(tmp_path):
             "SELECT COUNT(*) FROM sensor_samples").fetchone()[0] == 1
         assert db.execute("SELECT status FROM watering_runs").fetchone()[
             0] == "legacy"
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 3
 
 
 def test_init_db_does_not_erase_recorded_history(tmp_path):

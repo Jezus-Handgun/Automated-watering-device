@@ -265,3 +265,52 @@ w `TO_DO.md`. Wykonano pierwszy etap niezależny od wyboru elektroniki:
 - Odpowiedzi HTTP i finalizacja historii mogą czekać na bazę już po OFF.
   Nadzór 50 ms nie zapewnia gwarancji czasu rzeczywistego. Bez fizycznego GPIO,
   budowania obrazu, commitu i publikacji zmian.
+
+
+### 2026-09-29 — profil v0.3 i naprawa zgodności starszych baz
+
+- Użytkownik polecił zweryfikować opis zmian v0.3, a następnie zgłoszenie
+  rozbieżności schematów i braków dokumentacji. Funkcje v0.3 są już w lokalnie
+  dostępnej wersji `2b9c38f` (merge `395a105`); nie wdrażano ich ponownie.
+- Profil: `VALVE_ENABLED=0`, opcjonalny `WATER_LEVEL_PIN` (styk do GND oznacza
+  wodę), pompa active low, jeden kanał CH0. Zachowano `_safety_lock`, STOP,
+  unieważnianie oczekującego startu i zamrażanie wyników przy OFF. Nieznana woda
+  w symulacji blokuje start. Brak wody podczas pracy daje `low_water`.
+- `POST /api/pump/calibrate` wylicza wydajność z poprawnie zakończonego cyklu
+  czasowego w bieżącym trybie. Historia i panel rozdzielają `estimated_ml`
+  od impulsowego `delivered_ml`. Stare sesje nie otrzymują fikcyjnych objętości.
+- Budżet doby UTC obejmuje od v0.3 także sterowanie ręczne, z pełną rezerwacją
+  przed ON i bez zwrotu po STOP. Ten zapis zastępuje historyczne stwierdzenie
+  z etapu 6–8, że ręczne polecenia mogą przekraczać budżet.
+- KOD-19: oba warianty schematu v2 migrują transakcyjnie do v3. Znany czas
+  `pump_elapsed_seconds` kopiowany jest do pustego `pump_seconds`; stara kolumna
+  pozostaje. Brakujące szacunki/współczynniki pozostają NULL. Nieznany układ
+  czasu pompy powoduje jawny błąd bez oznaczania migracji jako zakończonej.
+- Dodano 6 regresji w `backend/tests/test_schema_compatibility.py`, sprawdzając
+  zachowanie danych, kalibrację, zapis nowych sesji, powtórne uruchomienie,
+  konflikt nazw i rollback. Odtworzono kształt starszej bazy z opisu; nie
+  otrzymano rzeczywistej bazy ani patcha użytkownika.
+- Zaktualizowano README i dodano `docs/POLACZENIA_V03.md`: konfiguracja,
+  połączenia, kalibracja, uruchamianie symulacji/Compose i ograniczenia.
+- Weryfikacja: **223 testy backendu zaliczone, 3 sprzętowe pominięte;
+  21 testów panelu zaliczonych**. Oba warianty `docker compose config --quiet`
+  oraz `git diff --check` poprawne. Wszystkie testy bez rzeczywistego GPIO.
+- Naprawa na `fix/greenhouse-v03-migration-docs`, baza `2b9c38f`; lokalny main
+  nie został przesunięty. Bez commitu, push i migracji rzeczywistej bazy.
+  KOD-18 oczekuje scalenia gałęzi naprawczej; dalszy cel projektowy: CAD v0.3.
+- Weryfikacja OFF, pływaka, przepływu/dawki i hydrauliki na fizycznym zestawie
+  pozostaje otwarta. Nie oznaczano zakupów ani wydruków jako wykonanych.
+
+
+### 2026-09-29 — poprawki przywrócone na aktywnym main
+
+- Na polecenie użytkownika odnaleziono poprzednie zmiany w `stash@{0}` i
+  przywrócono je przez `git stash apply` do bieżącego katalogu repozytorium.
+  Kopia w schowku została zachowana. Aktywna gałąź: `main`, HEAD `2b9c38f`.
+- Migracja do v3, regresje i dokumentacja znajdują się teraz w plikach roboczych
+  main. KOD-18 i KOD-19 ukończone lokalnie; wcześniejsze oczekiwanie na
+  przeniesienie zmian z gałęzi naprawczej jest nieaktualne.
+- Ponowne pełne testy: **223 backendu zaliczone, 3 sprzętowe pominięte;
+  21 panelu zaliczonych**. Obie konfiguracje Compose i `git diff --check` poprawne.
+- Bez commitu, push, fizycznego GPIO i migracji rzeczywistej bazy użytkownika.
+  Dalszy cel projektowy: CAD v0.3.

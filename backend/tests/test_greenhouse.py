@@ -308,7 +308,7 @@ def test_v1_migration_keeps_all_history_without_estimates(tmp_path):
     assert row['elapsed_seconds'] == 2 and row['status'] == 'completed'
     assert row['pump_seconds'] is row['estimated_ml'] is row['pump_ml_per_second'] is None
     with store.connection() as db:
-        assert db.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert db.execute('PRAGMA user_version').fetchone()[0] == 3
         assert db.execute('SELECT message FROM system_events').fetchone()[0] == 'keep'
         assert db.execute('SELECT value FROM settings').fetchone()[0] == '{}'
         assert db.execute('SELECT count(*) FROM watering_runs').fetchone()[0] == 1
